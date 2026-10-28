@@ -300,3 +300,30 @@ State them in the README so nobody chases them.
   from a gitignored env/config file, audit log as JSONL on a small volume, no database.
   Plus a stdio entry point via `uv run` / `uvx` for local development.
 - Stack: Python + MCP Python SDK 2.x.
+
+## 8. Phase 3 (planned, after live testing): local UI and database-backed config
+
+Intended use is a personal, local tool: Claude Code on the developer's machine talking to
+the server, nothing shared or deployed. Under that model the configuration should not live
+in `.env` or JSON files but be managed through a small web UI and stored locally.
+
+- **Storage**: one SQLite file in the user's data directory for subscriptions,
+  per-environment permissions, client secrets and the audit log, created with owner-only
+  (0600) permissions. No OS keychain: developers are on macOS, Linux and Windows, and
+  keychain backends are unreliable on headless Linux and WSL. The protection is the same
+  as today's `.env` file (filesystem permissions), which is acceptable for a personal
+  local tool.
+- **Process model**: the MCP server (stdio or HTTP) only *reads* the database, re-reading it
+  when the file's modification time changes, so permission changes apply to the next tool
+  call without a restart. A separate `ccv2-portal-mcp ui` command serves the management
+  page on localhost against the same database. This keeps one-process-per-session stdio
+  working and avoids port conflicts.
+- **UI scope**: add/edit/remove a subscription (name, code, token URL, client id, secret,
+  resource), toggle permissions per environment, show token health (last success, last
+  auth failure), secret age with expiry warning, and the recent audit entries.
+- **Bootstrap**: on first start, an existing `.env` / `CCV2_CONFIG` is imported into the
+  database; the file loaders stay as an alternative input for headless runs.
+- **Not a rewrite**: tools read configuration through `Registry.configure` / `load_config`
+  only, so this is a new loader plus a reload hook.
+
+Deferred until the server has been validated against a real subscription.
