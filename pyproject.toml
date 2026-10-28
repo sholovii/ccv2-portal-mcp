@@ -3,6 +3,7 @@ name = "ccv2-portal-mcp"
 version = "0.1.0"
 description = "MCP server for the SAP Commerce Cloud (CCv2) Cloud Portal API: builds, deployments, environments, endpoints, backups, scaling, properties."
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
     "anyio>=4.1",

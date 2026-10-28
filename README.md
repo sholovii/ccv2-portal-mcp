@@ -1,156 +1,115 @@
 # ccv2-portal-mcp
 
-MCP server for the **SAP Commerce Cloud (CCv2) Cloud Portal API**: builds, deployments,
-environments, and later endpoints, backups, scaling and properties. Python + MCP SDK.
+An [MCP](https://modelcontextprotocol.io/) server for the **SAP Commerce Cloud (CCv2) Cloud
+Portal**. It lets an AI assistant such as Claude see and operate the CCv2 control plane the
+way a release engineer does: check what is deployed where, trigger builds, deploy with the
+right guard rails, read build logs, manage backups, endpoints, certificates, scaling and
+hibernation.
 
-Background, API inventory and the roadmap live in [docs/research.md](docs/research.md). The
-official OpenAPI spec is checked in at `spec/cloud-portal-api-2.0.12.yaml`.
-
-## Status
-
-Phases 1 and 2 complete against the API contract; **not yet exercised against a real
-subscription** (needs a technical user). 45 tools.
-
-### Read
-
-| Tool | What it does |
-|---|---|
-| `ccv2portal_list_subscriptions` | configured subscriptions and per-environment permissions |
-| `ccv2portal_list_environments` | environments with status, deployment and hibernation state |
-| `ccv2portal_get_environment` | services/replicas, latest deployment + build, scaling, in one call |
-| `ccv2portal_list_builds` / `ccv2portal_get_build` | builds, filter by branch / status; progress and deployments of one build |
-| `ccv2portal_get_build_log` | unpacks the log zip; `errors` / `grep` / `tail` / `head` modes |
-| `ccv2portal_list_deployments` / `ccv2portal_get_deployment` | deployments; progress by stage with failed steps |
-| `ccv2portal_get_deployment_modes` | allowed DB modes and strategies per environment |
-| `ccv2portal_get_deployment_decisions` | blue-green decisions, traffic split, cancellation options |
-| `ccv2portal_get_property` | one customer property (secret-looking values masked) |
-| `ccv2portal_list_endpoints` | endpoints with maintenance mode; `detail=true` for full config |
-| `ccv2portal_list_certificates` | SSL certificates with days to expiry |
-| `ccv2portal_list_backups` / `ccv2portal_list_restores` | data backups and restores |
-| `ccv2portal_get_scaling_options` | current scaling and allowed values |
-| `ccv2portal_list_scheduled_activities` | hibernation / wake-up / DR schedules |
-| `ccv2portal_wait_for_build` / `ccv2portal_wait_for_deployment` / `ccv2portal_wait_for_backup` | bounded polling (≤ `WAIT_MAX_SEC` per call) |
-
-### Write (permission-gated, audited)
-
-| Tool | Permission | `confirm=true` needed |
-|---|---|---|
-| `ccv2portal_create_build` | `build` on any env | – |
-| `ccv2portal_create_deployment` | `deploy` (+ `deploy_prod`) | production, `INITIALIZE`, `RECREATE` |
-| `ccv2portal_cancel_deployment` | `deploy` (+ `deploy_prod`) | always |
-| `ccv2portal_blue_green_decision` | `deploy` (+ `deploy_prod`) | production |
-| `ccv2portal_set_traffic_split` | `deploy` (+ `deploy_prod`) | production |
-| `ccv2portal_set_property` | `properties_write` | production |
-| `ccv2portal_create_backup` / `ccv2portal_cancel_backup` | `backup_restore` | – |
-| `ccv2portal_delete_backup` | `backup_restore` | always |
-| `ccv2portal_restore_backup` | `backup_restore` (+ `deploy_prod` on prod target) | always |
-| `ccv2portal_cancel_restore` | `backup_restore` | always |
-| `ccv2portal_update_scaling` | `scaling` | always |
-| `ccv2portal_schedule_activity` / `reschedule` / `cancel` | `scaling` | hibernating production |
-| `ccv2portal_set_maintenance_mode` | `endpoints_write` | production |
-| `ccv2portal_upload_certificate` | `endpoints_write` on any env | – |
-| `ccv2portal_rotate_certificate` | `endpoints_write` | production |
-| `ccv2portal_delete_certificate` | `endpoints_write` on any env | always |
-
-`create_deployment` additionally refuses non-SUCCESS builds, a running deployment on the
-environment, and modes the portal does not allow for it. With `backup_first=true` it takes a
-QUICK database backup first and only deploys once that backup is restorable; if the backup is
-still running after the bounded wait, the deployment is not started and the backup code is
-returned for `ccv2portal_wait_for_backup`.
-
-`set_maintenance_mode` flips every endpoint of an environment (or a given list) in one call,
-through the bulk endpoint patch with a per-endpoint fallback. `rotate_certificate` re-points
-endpoints at a new certificate after checking its domains cover theirs, and can delete the
-old certificate once nothing uses it.
-
-### Helpers (what every pipeline re-implements)
-
-| Tool | What it does |
-|---|---|
-| `ccv2portal_whats_deployed` | which build/branch is live where, with a plain-language comparison |
-| `ccv2portal_rollback_environment` | plan (default) or execute a redeploy of the previous build with `NONE` |
-| `ccv2portal_diagnose_build_failure` | classifies the first error in a failed build's log and returns evidence |
-| `ccv2portal_pre_deploy_checklist` | status, permissions, running deployment, build, modes, backup age, maintenance mode, cert expiry, pending blue-green |
-| `ccv2portal_compare_properties` | diff property keys between two environments |
-| `ccv2portal_release_timeline` | builds and deployments of the last N days in one list |
-
-### Audit
-
-Every write (including refused ones) is appended as one JSON line to `AUDIT_LOG_PATH`
-(`/data/audit.jsonl` in the container) and logged to stderr: timestamp, subscription,
-tool, environment, arguments, portal response or error. Secret-looking keys and the values
-of secret-looking properties are masked.
-
-## Requirements
-
-- Python ≥ 3.12 and [uv](https://docs.astral.sh/uv/) for local runs; Docker for the service.
-- A **technical user** on the Cloud Portal (User Management → Technical Users). API tokens
-  stopped working with the March 2026 Kyma migration. The portal shows token endpoint URL,
-  client id, client secret and `resource` once; secrets expire, only the creator can rotate them.
-
-## Configuration
-
-All settings are environment variables (`.env` locally, `env_file` in compose). See
-[.env.example](.env.example).
-
-Single subscription: the flat `CCV2_*` variables. Several subscriptions: point `CCV2_CONFIG`
-at a JSON file like [config/config.example.json](config/config.example.json); `${VAR}`
-placeholders in it are resolved from the environment so secrets never sit in the file.
-
-### Permissions
-
-Every environment has a permission set; unlisted environments get the default (`read`).
+Everything goes through SAP's official Cloud Portal API. Nothing is scraped from the UI.
 
 ```
-CCV2_PERMISSIONS=d1:read,build,deploy;s1:read,build,deploy;p1:read
+"What is deployed on staging and prod right now, and are they on the same branch?"
+"Why did build 20261028.3 fail?"
+"Run the pre-deploy checklist for p1 with build 20261028.3."
+"Deploy it to s1 with a database update, take a quick backup first."
+"Put p1 into maintenance mode."
+"Roll d1 back to the previous build."
 ```
 
-Permissions: `read`, `build`, `deploy`, `deploy_prod`, `properties_write`, `endpoints_write`,
-`scaling`, `backup_restore`. Read tools refuse environments without `read`, so a production
-environment can be hidden from an agent entirely by leaving it out and setting the default to
-nothing. Write tools require `confirm=true` for production, `INITIALIZE`, `RECREATE`,
-cancellations, restores and scaling, mirroring the portal's own CONFIRM prompt.
+## Features
 
-## Run
+- **Full picture of an environment in one call**: status, services and replicas, the live
+  build and branch, scaling, hibernation.
+- **Builds and deployments**: list, inspect, trigger, wait. Deployment progress comes back by
+  stage with the failed steps pulled out.
+- **Build logs that fit in a context window**: the portal's log zip is unpacked and you ask
+  for the first error, a grep, a head or a tail.
+- **Guard rails for writes**: every environment has its own permission set, read-only by
+  default. Production, data-wiping and downtime-causing actions require an explicit
+  `confirm=true`, mirroring the portal's own CONFIRM prompt. A deployment is refused when the
+  build did not succeed, another deployment is running, or the portal does not allow the
+  chosen mode.
+- **Backup before deploy**: one flag takes a quick database backup and deploys only once it
+  is restorable.
+- **Blue-green and canary**: accept or reject a green deployment, set the traffic split.
+- **Rollback**: redeploys the previous build; shows the plan first, executes on confirm.
+- **Pre-deploy checklist**: availability, permissions, running deployment, build status and
+  branch, allowed modes, backup age, maintenance mode, certificate expiry, pending
+  blue-green decision.
+- **Build failure diagnosis**: classifies the first error (compile, tests, Spring context,
+  missing branch, dependency, out of memory, transient) with the relevant log lines.
+- **Maintenance mode** for all endpoints of an environment in one call.
+- **Certificates**: upload, rotate across endpoints with a domain check, delete when unused.
+- **Backups, restores and cross-environment data refresh**, scaling, scheduled hibernation.
+- **Property diff** between environments and a **release timeline** of builds and
+  deployments.
+- **Bounded waits**: no tool call blocks for more than a minute; long operations are polled
+  in short, repeatable calls.
+- **Audit log**: every write attempt, including refused ones, is recorded as JSON with
+  secrets masked.
+- **Several subscriptions** from one server, each with its own technical user and
+  permissions.
 
-Local, stdio:
+## Quick start
+
+You need a **technical user** on the Cloud Portal (User Management → Technical Users) with
+the `CUSTOMER_DEVELOPER` or `CUSTOMER_SYS_ADMIN` role and the environments it may access.
+The portal shows its token endpoint URL, client id, client secret and resource once.
 
 ```bash
-uv run ccv2-portal-mcp
-```
-
-Docker (streamable HTTP on `http://localhost:8849/mcp`):
-
-```bash
+cp .env.example .env        # fill in the technical-user values and the subscription code
 docker compose up -d --build
 ```
 
-Claude Code, stdio:
-
-```bash
-claude mcp add ccv2-portal -- uv --directory /path/to/ccv2-portal-mcp run ccv2-portal-mcp
-```
-
-Claude Code, HTTP:
+The server now listens on `http://localhost:8849/mcp` (streamable HTTP). Register it with
+Claude Code:
 
 ```bash
 claude mcp add --transport http ccv2-portal http://localhost:8849/mcp
 ```
 
-## Tests
+Without Docker, for local use over stdio:
 
 ```bash
+uv run ccv2-portal-mcp
+```
+
+```bash
+claude mcp add ccv2-portal -- uv --directory /path/to/ccv2-portal-mcp run ccv2-portal-mcp
+```
+
+By default every environment is read-only. Grant more per environment in `.env`:
+
+```
+CCV2_PERMISSIONS=d1:read,build,deploy,properties_write;s1:read,build,deploy;p1:read
+```
+
+## Documentation
+
+- [docs/tools.md](docs/tools.md): every tool, what it does, which permission it needs and
+  when it asks for confirmation.
+- [docs/configuration.md](docs/configuration.md): environment variables, multi-subscription
+  config, permissions, audit log, running modes, and the portal API gotchas the server
+  handles.
+- [docs/research.md](docs/research.md): the Cloud Portal API inventory, what the API cannot
+  do, the tooling ecosystem and the design decisions behind this project.
+- `spec/cloud-portal-api-2.0.12.yaml`: the official OpenAPI spec, extracted from SAP Help.
+
+## Status
+
+Implemented and unit-tested against the API contract. Not yet validated against a live
+subscription; `scripts/smoke.py` runs every read tool against one in a single command.
+
+## Development
+
+```bash
+uv sync
 uv run pytest
 ```
 
-Tests use an in-memory `httpx.MockTransport`; nothing talks to SAP.
+Tests use an in-memory fake portal; nothing talks to SAP.
 
-## Gotchas the server handles for you
+## License
 
-- Host is `portalapi.commerce.ondemand.com`; the old `portalrotapi` host answers 302 and is
-  refused in configuration.
-- Auth header is `x-approuter-authorization`. An HTML login page in a response is reported as
-  an auth error instead of a JSON parse failure.
-- Listings are paged at 100; tools page internally.
-- 429 responses are retried with backoff; 501 means the feature is disabled on the
-  subscription (e.g. deployment cancellation).
+MIT
