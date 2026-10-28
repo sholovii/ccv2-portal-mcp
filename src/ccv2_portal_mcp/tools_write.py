@@ -15,12 +15,15 @@ from .app import (
     ConfirmationRequired,
     active_deployment,
     audited,
+    backup_state,
     build_info,
+    cert_code_of,
     env_or_fail,
     is_production,
     registry,
     require,
     require_any,
+    safe,
     status_of,
     tool,
 )
@@ -30,6 +33,7 @@ from .config import (
     PERM_BUILD,
     PERM_DEPLOY,
     PERM_DEPLOY_PROD,
+    PERM_ENDPOINTS_WRITE,
     PERM_PROPERTIES_WRITE,
     PERM_SCALING,
     ConfigError,
@@ -112,7 +116,9 @@ def ccv2portal_create_build(branch: str, name: str | None = None, subscription: 
         "Deploy a build to an environment. database_update_mode: NONE | UPDATE | INITIALIZE; "
         "strategy: ROLLING_UPDATE | RECREATE | GREEN. Checks that the build succeeded, that no deployment "
         "is already running on the environment and that the portal allows the modes. confirm=true is "
-        "required for production, INITIALIZE (wipes data) and RECREATE (downtime)."
+        "required for production, INITIALIZE (wipes data) and RECREATE (downtime). backup_first=true takes a "
+        "QUICK database backup and waits for it (bounded) before deploying; if the backup is still running "
+        "the deployment is NOT started and the backup code is returned so you can wait and retry."
     ),
     annotations=DESTRUCTIVE,
 )
@@ -123,6 +129,7 @@ def ccv2portal_create_deployment(
     database_update_mode: str = "NONE",
     strategy: str = "ROLLING_UPDATE",
     confirm: bool = False,
+    backup_first: bool = False,
     subscription: str | None = None,
 ) -> WriteResult:
     client = registry.client(subscription)
@@ -158,14 +165,41 @@ def ccv2portal_create_deployment(
     if reasons:
         _confirm(confirm, f"Deploying build {build_code} ({build.branch}) to {environment} with {db_mode}/{strat}: " + "; ".join(reasons) + ".")
 
+    backup_note = ""
+    if backup_first:
+        require(client.sub, environment, PERM_BACKUP_RESTORE)
+        created = client.create_backup(environment, description=f"pre-deploy {build_code} ({build.branch})", backup_type="QUICK", databases=True, storages=False)
+        backup_code = created.get("databackupCode")
+        state = _wait_backup(client, environment, backup_code)
+        if state == "failed":
+            raise PortalError(f"pre-deploy backup {backup_code} failed; deployment not started")
+        if state != "done":
+            return WriteResult(
+                subscription=client.sub.name, action="create_deployment", environment=environment, code=None, executed=False,
+                response={"backup_code": backup_code, "backup_state": state},
+                hint=f"Backup {backup_code} is still running; deployment NOT started. Wait with ccv2portal_wait_for_backup, then call again without backup_first.",
+            )
+        backup_note = f" Pre-deploy backup {backup_code} completed."
+
     resp = client.create_deployment(build_code=build_code, environment=environment, database_update_mode=db_mode, strategy=strat)
     code = resp.get("code")
     return WriteResult(
         subscription=client.sub.name, action="create_deployment", environment=environment, code=code, executed=True,
         response=resp,
-        hint=f"Deployment {code} of build {build_code} ({build.branch}) to {environment} started ({db_mode}/{strat}). Poll with ccv2portal_wait_for_deployment."
+        hint=f"Deployment {code} of build {build_code} ({build.branch}) to {environment} started ({db_mode}/{strat}).{backup_note} Poll with ccv2portal_wait_for_deployment."
         + (" GREEN: accept or reject afterwards with ccv2portal_blue_green_decision." if strat == "GREEN" else ""),
     )
+
+
+def _wait_backup(client: PortalClient, env: str, code: str) -> str:
+    """Poll a backup within the bounded wait window; returns backup_state()."""
+    s = registry.settings
+    start = time.monotonic()
+    while True:
+        state = backup_state(client.backup(env, code))
+        if state != "running" or time.monotonic() - start + s.wait_poll_sec > s.wait_max_sec:
+            return state
+        time.sleep(max(2, s.wait_poll_sec))
 
 
 @tool(
@@ -466,6 +500,177 @@ def ccv2portal_cancel_activity(environment: str, activity_code: str, subscriptio
     return WriteResult(subscription=client.sub.name, action="cancel_activity", environment=environment, code=activity_code, executed=True, response=resp, hint="Cancelled.")
 
 
+
+
+
+# ------------------------------------------------------------- endpoints
+
+@tool(
+    name="ccv2portal_set_maintenance_mode",
+    description=(
+        "Switch maintenance mode on or off for endpoints of an environment in one call. Defaults to every "
+        "endpoint; pass `endpoints` (codes) to limit it, or web_proxy ('public'/'private') to filter. Uses the "
+        "bulk endpoint patch and falls back to per-endpoint patches. Production needs confirm=true."
+    ),
+    annotations=DESTRUCTIVE,
+)
+@audited("ccv2portal_set_maintenance_mode")
+def ccv2portal_set_maintenance_mode(
+    environment: str, enabled: bool, endpoints: list[str] | None = None, web_proxy: str | None = None,
+    confirm: bool = False, subscription: str | None = None,
+) -> WriteResult:
+    client = registry.client(subscription)
+    require(client.sub, environment, PERM_ENDPOINTS_WRITE)
+    prod = is_production(env_or_fail(client, environment), environment)
+    current = {e["code"]: e for e in client.endpoints(environment, web_proxy=web_proxy)}
+    if endpoints:
+        unknown = [c for c in endpoints if c not in current]
+        if unknown:
+            raise PortalError(f"unknown endpoint code(s) {unknown}; known: {sorted(current)}")
+        targets = [current[c] for c in endpoints]
+    else:
+        targets = list(current.values())
+    if not targets:
+        raise PortalError(f"no endpoints found on {environment}" + (f" for web_proxy={web_proxy}" if web_proxy else ""))
+    to_change = [e for e in targets if bool(e.get("maintenanceMode")) != enabled]
+    unchanged = [e["code"] for e in targets if e not in to_change]
+    if not to_change:
+        return WriteResult(subscription=client.sub.name, action="set_maintenance_mode", environment=environment, executed=False,
+                           response={"unchanged": unchanged}, hint=f"Maintenance mode already {'on' if enabled else 'off'} for {unchanged}.")
+    if prod:
+        _confirm(confirm, f"Turning maintenance mode {'ON' if enabled else 'OFF'} for {[e['code'] for e in to_change]} on production environment {environment}.")
+    items = [{"code": e["code"], "maintenanceMode": enabled} for e in to_change]
+    changed, errors, method = [], {}, "bulk"
+    try:
+        client.update_endpoints_bulk(environment, items)
+        changed = [e["code"] for e in to_change]
+    except PortalError as exc:
+        if exc.status not in {404, 405, 415, 501}:
+            raise
+        method = "per-endpoint"
+        for e in to_change:
+            _, err = safe(lambda e=e: client.update_endpoint(environment, e["code"], {"maintenanceMode": enabled}))
+            (errors.__setitem__(e["code"], err) if err else changed.append(e["code"]))
+    return WriteResult(
+        subscription=client.sub.name, action="set_maintenance_mode", environment=environment, executed=bool(changed),
+        response={"enabled": enabled, "changed": changed, "unchanged": unchanged, "errors": errors, "method": method},
+        hint=f"Maintenance mode {'on' if enabled else 'off'} for {changed}." + (f" Failed: {errors}." if errors else ""),
+    )
+
+
+# ---------------------------------------------------------- certificates
+
+def _check_pem(label: str, pem: str, kind: str) -> None:
+    if f"-----BEGIN {kind}" not in pem and not (kind == "PRIVATE KEY" and "PRIVATE KEY-----" in pem):
+        raise ConfigError(f"{label} must be PEM text including the BEGIN/END {kind} markers")
+
+
+@tool(
+    name="ccv2portal_upload_certificate",
+    description="Upload an SSL certificate (PEM certificate, matching PEM private key, optional PEM CA chain) to the subscription. Returns the certificate code to assign with ccv2portal_rotate_certificate. Needs endpoints_write on any environment.",
+    annotations=WRITE,
+)
+@audited("ccv2portal_upload_certificate", env_arg=None)
+def ccv2portal_upload_certificate(
+    name: str, certificate_pem: str, private_key_pem: str, ca_certificate_pem: str | None = None,
+    description: str | None = None, subscription: str | None = None,
+) -> WriteResult:
+    client = registry.client(subscription)
+    require_any(client.sub, PERM_ENDPOINTS_WRITE)
+    _check_pem("certificate_pem", certificate_pem, "CERTIFICATE")
+    _check_pem("private_key_pem", private_key_pem, "PRIVATE KEY")
+    if ca_certificate_pem:
+        _check_pem("ca_certificate_pem", ca_certificate_pem, "CERTIFICATE")
+    resp = client.create_certificate(name=name, certificate=certificate_pem, certificate_key=private_key_pem, ca_certificate=ca_certificate_pem, description=description)
+    code = resp.get("code")
+    return WriteResult(
+        subscription=client.sub.name, action="upload_certificate", code=code, executed=True,
+        response={k: resp.get(k) for k in ("code", "name", "domains", "issuer", "expirationDate")},
+        hint=f"Certificate {code} uploaded (domains {resp.get('domains')}, expires {resp.get('expirationDate')}). Assign it with ccv2portal_rotate_certificate.",
+    )
+
+
+@tool(
+    name="ccv2portal_rotate_certificate",
+    description=(
+        "Point endpoints of an environment at a new certificate. Defaults to every HTTPS endpoint that currently "
+        "uses `old_certificate_code` (or any certificate when it is omitted); `endpoints` limits the set. "
+        "delete_old=true removes the old certificate afterwards if no endpoint anywhere still uses it. "
+        "Production needs confirm=true."
+    ),
+    annotations=DESTRUCTIVE,
+)
+@audited("ccv2portal_rotate_certificate")
+def ccv2portal_rotate_certificate(
+    environment: str, new_certificate_code: str, old_certificate_code: str | None = None, endpoints: list[str] | None = None,
+    delete_old: bool = False, confirm: bool = False, subscription: str | None = None,
+) -> WriteResult:
+    client = registry.client(subscription)
+    require(client.sub, environment, PERM_ENDPOINTS_WRITE)
+    prod = is_production(env_or_fail(client, environment), environment)
+    new_cert = client.certificate(new_certificate_code)
+    details = [client.endpoint(environment, e["code"]) for e in client.endpoints(environment)]
+    if endpoints:
+        unknown = [c for c in endpoints if c not in {d["code"] for d in details}]
+        if unknown:
+            raise PortalError(f"unknown endpoint code(s) {unknown}")
+        details = [d for d in details if d["code"] in endpoints]
+    targets = []
+    for d in details:
+        cur = cert_code_of(d)
+        if cur == new_certificate_code:
+            continue
+        if old_certificate_code and cur != old_certificate_code:
+            continue
+        if not old_certificate_code and not endpoints and (d.get("protocol") or "HTTPS").upper() != "HTTPS":
+            continue
+        targets.append(d)
+    if not targets:
+        return WriteResult(subscription=client.sub.name, action="rotate_certificate", environment=environment, code=new_certificate_code,
+                           executed=False, hint="No endpoint needs changing (already on the new certificate or no match).")
+    domains = [str(x).lower() for x in new_cert.get("domains") or []]
+    mismatched = [d["code"] for d in targets if d.get("domainName") and domains and not any(
+        d["domainName"].lower() == dom or (dom.startswith("*.") and d["domainName"].lower().endswith(dom[1:])) for dom in domains)]
+    if mismatched:
+        raise PortalError(f"certificate {new_certificate_code} covers {domains}, which does not match endpoint domain(s) of {mismatched}")
+    if prod:
+        _confirm(confirm, f"Switching {[t['code'] for t in targets]} on production environment {environment} to certificate {new_certificate_code}.")
+    changed, errors = [], {}
+    for d in targets:
+        _, err = safe(lambda d=d: client.update_endpoint(environment, d["code"], {"sslCertificate": new_certificate_code}))
+        (errors.__setitem__(d["code"], err) if err else changed.append(d["code"]))
+    deleted = []
+    if delete_old and changed and not errors:
+        old_codes = {cert_code_of(d) for d in targets} - {None, new_certificate_code}
+        for code in old_codes:
+            cert, err = safe(lambda code=code: client.certificate(code))
+            if cert and not cert.get("endpoints"):
+                _, derr = safe(lambda code=code: client.delete_certificate(code))
+                (errors.__setitem__(f"delete {code}", derr) if derr else deleted.append(code))
+            elif cert:
+                errors[f"delete {code}"] = f"still used by {[e.get('code') for e in cert.get('endpoints')]}"
+    return WriteResult(
+        subscription=client.sub.name, action="rotate_certificate", environment=environment, code=new_certificate_code, executed=bool(changed),
+        response={"changed": changed, "errors": errors, "deleted_certificates": deleted, "expires": new_cert.get("expirationDate")},
+        hint=f"{len(changed)} endpoint(s) now use {new_certificate_code}." + (f" Deleted {deleted}." if deleted else "") + (f" Errors: {errors}." if errors else ""),
+    )
+
+
+@tool(
+    name="ccv2portal_delete_certificate",
+    description="Delete an SSL certificate that no endpoint uses any more. Needs confirm=true.",
+    annotations=DESTRUCTIVE,
+)
+@audited("ccv2portal_delete_certificate", env_arg=None)
+def ccv2portal_delete_certificate(certificate_code: str, confirm: bool = False, subscription: str | None = None) -> WriteResult:
+    client = registry.client(subscription)
+    require_any(client.sub, PERM_ENDPOINTS_WRITE)
+    cert = client.certificate(certificate_code)
+    if cert.get("endpoints"):
+        raise PortalError(f"certificate {certificate_code} is still used by {[e.get('code') for e in cert['endpoints']]}; rotate first")
+    _confirm(confirm, f"Deleting certificate {certificate_code} ({cert.get('name')}) is irreversible.")
+    client.delete_certificate(certificate_code)
+    return WriteResult(subscription=client.sub.name, action="delete_certificate", code=certificate_code, executed=True, hint="Deleted.")
 
 
 __all__ = [n for n in dir() if n.startswith("ccv2portal_")]

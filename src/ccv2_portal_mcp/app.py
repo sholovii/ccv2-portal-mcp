@@ -265,3 +265,25 @@ def safe(fn: Callable[[], Any]) -> tuple[Any, str | None]:
         return fn(), None
     except (PortalError, AuthError) as exc:
         return None, str(exc)
+
+
+BACKUP_DONE_WORDS = ("SUCCESS", "COMPLETED", "DONE", "AVAILABLE", "FINISHED")
+BACKUP_FAILED_WORDS = ("FAIL", "ERROR", "CANCEL")
+
+
+def backup_state(raw: dict) -> str:
+    """'done' | 'failed' | 'running' from a backup/restore DTO (status strings are not in the spec)."""
+    status = (raw.get("status") or "").upper()
+    if any(w in status for w in BACKUP_FAILED_WORDS):
+        return "failed"
+    if raw.get("canBeRestored") or any(w in status for w in BACKUP_DONE_WORDS):
+        return "done"
+    return "running"
+
+
+def cert_code_of(endpoint: dict) -> str | None:
+    """EndpointDTO.sslCertificate may be a code string or an object with a code."""
+    ssl = endpoint.get("sslCertificate")
+    if isinstance(ssl, dict):
+        return ssl.get("code")
+    return ssl or None

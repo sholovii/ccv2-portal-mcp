@@ -8,8 +8,8 @@ official OpenAPI spec is checked in at `spec/cloud-portal-api-2.0.12.yaml`.
 
 ## Status
 
-Phase 1 complete against the API contract; **not yet exercised against a real subscription**
-(needs a technical user). 40 tools.
+Phases 1 and 2 complete against the API contract; **not yet exercised against a real
+subscription** (needs a technical user). 45 tools.
 
 ### Read
 
@@ -29,7 +29,7 @@ Phase 1 complete against the API contract; **not yet exercised against a real su
 | `ccv2portal_list_backups` / `ccv2portal_list_restores` | data backups and restores |
 | `ccv2portal_get_scaling_options` | current scaling and allowed values |
 | `ccv2portal_list_scheduled_activities` | hibernation / wake-up / DR schedules |
-| `ccv2portal_wait_for_build` / `ccv2portal_wait_for_deployment` | bounded polling (≤ `WAIT_MAX_SEC` per call) |
+| `ccv2portal_wait_for_build` / `ccv2portal_wait_for_deployment` / `ccv2portal_wait_for_backup` | bounded polling (≤ `WAIT_MAX_SEC` per call) |
 
 ### Write (permission-gated, audited)
 
@@ -47,9 +47,21 @@ Phase 1 complete against the API contract; **not yet exercised against a real su
 | `ccv2portal_cancel_restore` | `backup_restore` | always |
 | `ccv2portal_update_scaling` | `scaling` | always |
 | `ccv2portal_schedule_activity` / `reschedule` / `cancel` | `scaling` | hibernating production |
+| `ccv2portal_set_maintenance_mode` | `endpoints_write` | production |
+| `ccv2portal_upload_certificate` | `endpoints_write` on any env | – |
+| `ccv2portal_rotate_certificate` | `endpoints_write` | production |
+| `ccv2portal_delete_certificate` | `endpoints_write` on any env | always |
 
 `create_deployment` additionally refuses non-SUCCESS builds, a running deployment on the
-environment, and modes the portal does not allow for it.
+environment, and modes the portal does not allow for it. With `backup_first=true` it takes a
+QUICK database backup first and only deploys once that backup is restorable; if the backup is
+still running after the bounded wait, the deployment is not started and the backup code is
+returned for `ccv2portal_wait_for_backup`.
+
+`set_maintenance_mode` flips every endpoint of an environment (or a given list) in one call,
+through the bulk endpoint patch with a per-endpoint fallback. `rotate_certificate` re-points
+endpoints at a new certificate after checking its domains cover theirs, and can delete the
+old certificate once nothing uses it.
 
 ### Helpers (what every pipeline re-implements)
 

@@ -16,6 +16,7 @@ from .app import (
     ConfirmationRequired,
     active_deployment,
     audited,
+    backup_state,
     build_info,
     env_or_fail,
     is_production,
@@ -91,6 +92,32 @@ def ccv2portal_wait_for_build(build_code: str, timeout_sec: int | None = None, p
 )
 def ccv2portal_wait_for_deployment(deployment_code: str, timeout_sec: int | None = None, poll_sec: int | None = None, subscription: str | None = None) -> WaitResult:
     return _wait("deployment", deployment_code, lambda c, code: c.deployment_progress(code), DEPLOYMENT_TERMINAL, timeout_sec, poll_sec, subscription)
+
+
+@tool(
+    name="ccv2portal_wait_for_backup",
+    description="Poll a data backup until it is restorable, failed, or the bounded timeout elapses (never longer than WAIT_MAX_SEC per call). Returns done=false with a hint to call again while it is still running.",
+    annotations=READ_ONLY,
+)
+def ccv2portal_wait_for_backup(environment: str, backup_code: str, timeout_sec: int | None = None, poll_sec: int | None = None, subscription: str | None = None) -> WaitResult:
+    client = registry.client(subscription)
+    require(client.sub, environment, PERM_READ)
+    s = registry.settings
+    timeout = min(max(1, timeout_sec or s.wait_max_sec), s.wait_max_sec)
+    poll = max(2, poll_sec or s.wait_poll_sec)
+    start = time.monotonic()
+    while True:
+        raw = client.backup(environment, backup_code)
+        state = backup_state(raw)
+        elapsed = time.monotonic() - start
+        if state != "running" or elapsed + poll > timeout:
+            done = state != "running"
+            return WaitResult(
+                subscription=client.sub.name, kind="backup", code=backup_code, status=raw.get("status"), done=done,
+                succeeded=(state == "done") if done else None, waited_sec=round(elapsed, 1),
+                hint=f"backup {state}." if done else f"Still running after {elapsed:.0f}s; call again (each call waits at most {s.wait_max_sec}s).",
+            )
+        time.sleep(poll)
 
 
 # ------------------------------------------------------------ what's deployed

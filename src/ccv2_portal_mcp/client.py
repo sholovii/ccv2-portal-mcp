@@ -388,3 +388,38 @@ class PortalClient:
     def cancel_scheduled_activity(self, env: str, code: str) -> dict:
         resp = self.request("POST", f"{self.prefix}/environments/{env}/scheduledactivities/{code}/cancel", content_type="application/json")
         return resp.json() if resp.content else {"status": resp.status_code}
+
+    # ------------------------------------------------------- endpoint writes
+
+    def update_endpoint(self, env: str, code: str, patch: dict) -> dict:
+        resp = self.request(
+            "PATCH", f"{self.prefix}/environments/{env}/endpoints/{code}",
+            json=patch, content_type="application/merge-patch+json",
+        )
+        return resp.json() if resp.content else patch
+
+    def update_endpoints_bulk(self, env: str, items: list[dict]) -> Any:
+        """Bulk merge-patch (Apr 2026, help page only): a JSON array of partial endpoints with `code`."""
+        resp = self.request(
+            "PATCH", f"{self.prefix}/environments/{env}/endpoints",
+            json=items, content_type="application/merge-patch+json",
+        )
+        return resp.json() if resp.content else items
+
+    # ------------------------------------------------------ certificate writes
+
+    def certificate(self, code: str) -> dict:
+        return self.get_json(f"{self.prefix}/certificates/{code}")
+
+    def create_certificate(
+        self, *, name: str, certificate: str, certificate_key: str, ca_certificate: str | None, description: str | None
+    ) -> dict:
+        body: dict[str, Any] = {"name": name, "certificate": certificate, "certificateKey": certificate_key}
+        if ca_certificate:
+            body["caCertificate"] = ca_certificate
+        if description:
+            body["description"] = description
+        return self.request("POST", f"{self.prefix}/certificates", json=body, content_type="application/json").json()
+
+    def delete_certificate(self, code: str) -> None:
+        self.request("DELETE", f"{self.prefix}/certificates/{code}")
