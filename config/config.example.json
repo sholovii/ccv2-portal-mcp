@@ -1,0 +1,18 @@
+{
+  "default_subscription": "acme",
+  "subscriptions": {
+    "acme": {
+      "code": "a1b2c3d4-subscription-code",
+      "client_id": "${ACME_CLIENT_ID}",
+      "client_secret": "${ACME_CLIENT_SECRET}",
+      "token_url": "https://ycloud.accounts.ondemand.com/oauth2/token",
+      "resource": "${ACME_RESOURCE}",
+      "default_permissions": ["read"],
+      "permissions": {
+        "d1": ["read", "build", "deploy", "properties_write"],
+        "s1": ["read", "build", "deploy"],
+        "p1": ["read"]
+      }
+    }
+  }
+}

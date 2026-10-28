@@ -1,0 +1,29 @@
+[project]
+name = "ccv2-portal-mcp"
+version = "0.1.0"
+description = "MCP server for the SAP Commerce Cloud (CCv2) Cloud Portal API: builds, deployments, environments, endpoints, backups, scaling, properties."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "anyio>=4.1",
+    "httpx>=0.27",
+    "mcp[cli]>=2.3,<3",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+ccv2-portal-mcp = "ccv2_portal_mcp.server:main"
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

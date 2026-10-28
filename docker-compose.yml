@@ -1,0 +1,29 @@
+# One container serves every subscription listed in the config. Secrets come from the
+# gitignored .env (flat single-subscription variables) or from CCV2_CONFIG (JSON file with
+# ${VAR} placeholders resolved from the same .env). No database is needed.
+#
+#   cp .env.example .env            # fill in the technical-user values
+#   docker compose up -d --build
+#   MCP endpoint: http://localhost:8849/mcp
+services:
+  mcp:
+    build: .
+    restart: unless-stopped
+    mem_limit: ${MCP_MEM_LIMIT:-512m}
+    env_file:
+      - .env
+    environment:
+      MCP_TRANSPORT: streamable-http
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 8849
+      # Uncomment to use the multi-subscription JSON config mounted below.
+      # CCV2_CONFIG: /config/config.json
+      AUDIT_LOG_PATH: /data/audit.jsonl
+    ports:
+      - "${MCP_PORT_HOST:-8849}:8849"
+    volumes:
+      - ./config:/config:ro
+      - audit:/data
+
+volumes:
+  audit:
