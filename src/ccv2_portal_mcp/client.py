@@ -261,3 +261,130 @@ class PortalClient:
         return self.request(
             "POST", f"{self.prefix}/deployments", json=body, content_type="application/json"
         ).json()
+
+    # ------------------------------------------------ deployment control ops
+
+    def cancellation_options(self, code: str) -> dict:
+        return self.get_json(f"{self.prefix}/deployments/{code}/cancellationoptions")
+
+    def cancel_deployment(self, code: str, *, rollback_database: bool, reason: str) -> dict:
+        body = {"rollbackDatabase": rollback_database, "cancelReason": reason}
+        resp = self.request("POST", f"{self.prefix}/deployments/{code}/cancellation", json=body, content_type="application/json")
+        return resp.json() if resp.content else {"status": resp.status_code}
+
+    def deployment_decisions(self, code: str) -> dict:
+        return self.get_json(f"{self.prefix}/deployments/{code}/decisions")
+
+    def create_deployment_decision(self, code: str, *, decision: str, reason: str | None) -> dict:
+        body: dict[str, Any] = {"decision": decision}
+        if reason:
+            body["reason"] = reason
+        return self.request("POST", f"{self.prefix}/deployments/{code}/decisions", json=body, content_type="application/json").json()
+
+    def traffic_split(self, code: str) -> dict:
+        return self.get_json(f"{self.prefix}/deployments/{code}/trafficsplit")
+
+    def update_traffic_split(self, code: str, *, services: list[dict], endpoints: list[dict]) -> dict:
+        body = {"services": services, "endpoints": endpoints}
+        return self.request("PUT", f"{self.prefix}/deployments/{code}/trafficsplit", json=body, content_type="application/json").json()
+
+    # --------------------------------------------------------------- properties
+
+    def put_property(self, env: str, service: str, key: str, value: str, flags: list[str] | None = None) -> dict:
+        body: dict[str, Any] = {"key": key, "value": value}
+        if flags:
+            body["flags"] = flags
+        resp = self.request(
+            "PUT", f"{self.prefix}/environments/{env}/services/{service}/properties/{key}",
+            json=body, content_type="application/json",
+        )
+        return resp.json() if resp.content else body
+
+    # ---------------------------------------------------------------- endpoints
+
+    def endpoints(self, env: str, *, web_proxy: str | None = None, service: str | None = None) -> list[dict]:
+        params: dict[str, Any] = {}
+        if web_proxy:
+            params["webProxy"] = web_proxy
+        if service:
+            params["service"] = service
+        return self.get_paged(f"{self.prefix}/environments/{env}/endpoints", params or None)
+
+    def endpoint(self, env: str, code: str) -> dict:
+        return self.get_json(f"{self.prefix}/environments/{env}/endpoints/{code}")
+
+    def certificates(self) -> list[dict]:
+        return self.get_paged(f"{self.prefix}/certificates")
+
+    # ------------------------------------------------------------------ backups
+
+    def backups(self, env: str) -> list[dict]:
+        return self.get_paged(f"{self.prefix}/environments/{env}/databackups")
+
+    def backup(self, env: str, code: str) -> dict:
+        return self.get_json(f"{self.prefix}/environments/{env}/databackups/{code}")
+
+    def create_backup(self, env: str, *, description: str, backup_type: str, databases: bool, storages: bool) -> dict:
+        body = {
+            "description": description,
+            "databackupType": backup_type,
+            "databackupContent": {
+                "databasesBackup": {"included": databases},
+                "storagesBackup": {"included": storages},
+            },
+        }
+        return self.request("POST", f"{self.prefix}/environments/{env}/databackups", json=body, content_type="application/json").json()
+
+    def cancel_backup(self, env: str, code: str) -> dict:
+        resp = self.request("PUT", f"{self.prefix}/environments/{env}/databackups/{code}/state", json={"action": "CANCEL"}, content_type="application/json")
+        return resp.json() if resp.content else {"status": resp.status_code}
+
+    def delete_backup(self, env: str, code: str) -> None:
+        self.request("DELETE", f"{self.prefix}/environments/{env}/databackups/{code}")
+
+    def restores(self, env: str) -> list[dict]:
+        return self.get_paged(f"{self.prefix}/environments/{env}/datarestores")
+
+    def restore(self, env: str, code: str) -> dict:
+        return self.get_json(f"{self.prefix}/environments/{env}/datarestores/{code}")
+
+    def create_restore(self, target_env: str, *, backup_code: str, source_env: str, restore_point_time: str | None) -> dict:
+        body: dict[str, Any] = {"databackupCode": backup_code, "sourceEnvironmentCode": source_env}
+        if restore_point_time:
+            body["restorePointTime"] = restore_point_time
+        return self.request("POST", f"{self.prefix}/environments/{target_env}/datarestores", json=body, content_type="application/json").json()
+
+    def cancel_restore(self, env: str, code: str) -> dict:
+        resp = self.request("PUT", f"{self.prefix}/environments/{env}/datarestores/{code}/state", json={"action": "CANCEL"}, content_type="application/json")
+        return resp.json() if resp.content else {"status": resp.status_code}
+
+    # ------------------------------------------------------------------ scaling
+
+    def scaling_options(self, env: str) -> dict:
+        return self.get_json(f"{self.prefix}/environments/{env}/scalingOptions")
+
+    def patch_scaling(self, env: str, body: dict) -> dict:
+        resp = self.request("PATCH", f"{self.prefix}/environments/{env}/scaling", json=body, content_type="application/json")
+        return resp.json() if resp.content else {"status": resp.status_code}
+
+    # ------------------------------------------------------- scheduled activities
+
+    def scheduled_activities(self, env: str, *, activity_type: list[str] | None = None, status: list[str] | None = None) -> list[dict]:
+        params: dict[str, Any] = {}
+        if activity_type:
+            params["activityType"] = activity_type
+        if status:
+            params["status"] = status
+        return self.get_paged(f"{self.prefix}/environments/{env}/scheduledactivities", params or None)
+
+    def create_scheduled_activity(self, env: str, *, activity_type: str, scheduled_timestamp: str) -> dict:
+        body = {"activityType": activity_type, "scheduledTimestamp": scheduled_timestamp}
+        return self.request("POST", f"{self.prefix}/environments/{env}/scheduledactivities", json=body, content_type="application/json").json()
+
+    def update_scheduled_activity(self, env: str, code: str, *, scheduled_timestamp: str) -> dict:
+        resp = self.request("PATCH", f"{self.prefix}/environments/{env}/scheduledactivities/{code}", json={"scheduledTimestamp": scheduled_timestamp}, content_type="application/json")
+        return resp.json() if resp.content else {"status": resp.status_code}
+
+    def cancel_scheduled_activity(self, env: str, code: str) -> dict:
+        resp = self.request("POST", f"{self.prefix}/environments/{env}/scheduledactivities/{code}/cancel", content_type="application/json")
+        return resp.json() if resp.content else {"status": resp.status_code}

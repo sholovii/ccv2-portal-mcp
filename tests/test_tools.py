@@ -105,4 +105,4 @@ async def test_tools_registered_with_prefix(configured):
     names = {t.name for t in tools}
     assert names >= {"ccv2portal_list_environments", "ccv2portal_get_build_log", "ccv2portal_wait_for_deployment"}
     assert all(n.startswith("ccv2portal_") for n in names)
-    assert all(t.annotations.read_only_hint for t in tools)
+    assert all(t.annotations.read_only_hint for t in tools if t.name.startswith(("ccv2portal_list_", "ccv2portal_get_", "ccv2portal_wait_")))

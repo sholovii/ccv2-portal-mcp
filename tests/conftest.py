@@ -9,7 +9,8 @@ import zipfile
 import httpx
 import pytest
 
-from ccv2_portal_mcp import server
+from ccv2_portal_mcp import server, tools_helpers
+from ccv2_portal_mcp.audit import Audit
 from ccv2_portal_mcp.client import PortalClient
 from ccv2_portal_mcp.config import AppConfig, Settings, SubscriptionConfig
 
@@ -99,7 +100,13 @@ def configured(portal, client, monkeypatch):
     """Wire the server registry to the fake portal."""
     settings = Settings(_env_file=None, wait_max_sec=5, wait_poll_sec=2, build_log_max_lines=50)
     cfg = AppConfig(subscriptions={"acme": client.sub}, default_subscription="acme")
-    server.registry.configure(settings, cfg)
+    server.registry.configure(settings, cfg, Audit(None))
     server.registry.set_client("acme", client)
-    monkeypatch.setattr(server.time, "sleep", lambda s: None)
+    monkeypatch.setattr(tools_helpers.time, "sleep", lambda s: None)
+    # environments used by guards (type lookups); tests may override the route
+    portal.route("GET", f"/v2/subscriptions/{SUB}/environments", {"value": [
+        {"code": "d1", "type": "development", "status": "AVAILABLE"},
+        {"code": "s1", "type": "staging", "status": "AVAILABLE"},
+        {"code": "p1", "type": "production", "status": "AVAILABLE"},
+    ], "count": 3})
     return portal
