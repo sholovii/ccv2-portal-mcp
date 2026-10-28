@@ -1,0 +1,30 @@
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# Node (in case)
+node_modules/
+
+# Secrets and local config — never commit technical-user credentials
+.env
+.env.*
+!.env.example
+*.local.json
+config.local.*
+
+# Runtime data
+*.log
+audit/
