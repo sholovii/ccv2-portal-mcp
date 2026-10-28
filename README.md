@@ -49,7 +49,8 @@ Everything goes through SAP's official Cloud Portal API. Nothing is scraped from
 - **Audit log**: every write attempt, including refused ones, is recorded as JSON with
   secrets masked.
 - **Several subscriptions** from one server, each with its own technical user and
-  permissions.
+  permissions, configured from variables or a JSON file; every tool takes a `subscription`
+  argument.
 
 ## Quick start
 

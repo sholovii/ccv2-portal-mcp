@@ -86,3 +86,43 @@ def test_resolve_ambiguous():
     with pytest.raises(ConfigError, match="none is the default"):
         cfg.resolve(None)
     assert cfg.resolve("b").code == "b"
+
+
+def _clear(monkeypatch):
+    for k in ("CCV2_CONFIG", "CCV2_SUBSCRIPTIONS", "CCV2_DEFAULT_SUBSCRIPTION", "CCV2_TOKEN_URL", "CCV2_SUBSCRIPTION_CODE"):
+        monkeypatch.delenv(k, raising=False)
+
+
+def test_env_multi_subscriptions(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv("CCV2_SUBSCRIPTIONS", "acme, globex-eu")
+    monkeypatch.setenv("CCV2_DEFAULT_SUBSCRIPTION", "globex-eu")
+    monkeypatch.setenv("CCV2_TOKEN_URL", "https://ias/token")
+    for pre in ("ACME", "GLOBEX_EU"):
+        monkeypatch.setenv(f"{pre}_SUBSCRIPTION_CODE", f"code-{pre}")
+        monkeypatch.setenv(f"{pre}_CLIENT_ID", "id")
+        monkeypatch.setenv(f"{pre}_CLIENT_SECRET", "sec")
+        monkeypatch.setenv(f"{pre}_RESOURCE", "res")
+    monkeypatch.setenv("ACME_PERMISSIONS", "d1:read,deploy")
+    monkeypatch.setenv("GLOBEX_EU_TOKEN_URL", "https://other-ias/token")
+    monkeypatch.setenv("GLOBEX_EU_DEFAULT_PERMISSIONS", "")
+    cfg = load_config(Settings(_env_file=None))
+    assert sorted(cfg.subscriptions) == ["acme", "globex-eu"]
+    assert cfg.resolve(None).code == "code-GLOBEX_EU"
+    assert cfg.resolve("acme").allows("d1", "deploy") and cfg.resolve("acme").perms_for("p1") == {"read"}
+    assert cfg.resolve("globex-eu").token_url == "https://other-ias/token"
+    assert cfg.resolve("globex-eu").perms_for("d1") == set()  # hidden unless listed
+
+
+def test_env_multi_missing_and_bad_default(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv("CCV2_SUBSCRIPTIONS", "acme")
+    monkeypatch.setenv("ACME_SUBSCRIPTION_CODE", "c")
+    with pytest.raises(ConfigError, match="ACME_CLIENT_ID"):
+        load_config(Settings(_env_file=None))
+    for k in ("CLIENT_ID", "CLIENT_SECRET", "RESOURCE", "TOKEN_URL"):
+        monkeypatch.setenv(f"ACME_{k}", "x")
+    assert load_config(Settings(_env_file=None)).default_subscription == "acme"  # single name is the default
+    monkeypatch.setenv("CCV2_DEFAULT_SUBSCRIPTION", "nope")
+    with pytest.raises(ConfigError, match="CCV2_DEFAULT_SUBSCRIPTION"):
+        load_config(Settings(_env_file=None))

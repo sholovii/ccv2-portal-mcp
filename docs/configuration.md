@@ -33,6 +33,39 @@ CCV2_DEFAULT_PERMISSIONS=read
 
 ## Several subscriptions
 
+Every tool takes a `subscription` argument naming one of the configured subscriptions; it
+may be omitted when a default is set or only one is configured. Each subscription has its
+own technical user, base URL and permissions, and gets its own token cache.
+
+### From environment variables
+
+List the names in `CCV2_SUBSCRIPTIONS`; each name becomes an upper-case prefix
+(`acme` → `ACME_`, `globex-eu` → `GLOBEX_EU_`).
+
+```
+CCV2_SUBSCRIPTIONS=acme,globex-eu
+CCV2_DEFAULT_SUBSCRIPTION=acme
+CCV2_TOKEN_URL=https://ycloud.accounts.ondemand.com/oauth2/token
+
+ACME_SUBSCRIPTION_CODE=<code>
+ACME_CLIENT_ID=<client id>
+ACME_CLIENT_SECRET=<client secret>
+ACME_RESOURCE=<resource>
+ACME_PERMISSIONS=d1:read,build,deploy;s1:read,build,deploy;p1:read
+
+GLOBEX_EU_SUBSCRIPTION_CODE=<code>
+GLOBEX_EU_CLIENT_ID=<client id>
+GLOBEX_EU_CLIENT_SECRET=<client secret>
+GLOBEX_EU_RESOURCE=<resource>
+GLOBEX_EU_PERMISSIONS=d1:read
+```
+
+`<PREFIX>_TOKEN_URL`, `<PREFIX>_DEFAULT_PERMISSIONS` and `<PREFIX>_BASE_URL` are optional and
+fall back to `CCV2_TOKEN_URL`, `CCV2_DEFAULT_PERMISSIONS` and `CCV2_BASE_URL`. With a single
+name it is the default automatically.
+
+### From a JSON file
+
 Point `CCV2_CONFIG` at a JSON file. String values may contain `${VAR}` placeholders, resolved
 from the environment, so secrets stay out of the file. See
 [config/config.example.json](../config/config.example.json).

@@ -1,12 +1,16 @@
 """Runtime configuration.
 
-Two ways to configure, both producing the same `AppConfig`:
+Three ways to configure, all producing the same `AppConfig`:
 
 1. Flat environment variables for a single subscription (the Docker default):
    CCV2_SUBSCRIPTION_CODE, CCV2_CLIENT_ID, CCV2_CLIENT_SECRET, CCV2_TOKEN_URL, CCV2_RESOURCE,
    CCV2_PERMISSIONS ("d1:read,build,deploy;s1:read,build;p1:read"),
    CCV2_DEFAULT_PERMISSIONS ("read").
-2. A JSON file named by CCV2_CONFIG for several subscriptions. String values may contain
+2. Several subscriptions from environment variables: CCV2_SUBSCRIPTIONS="acme,globex" and,
+   per name, ACME_SUBSCRIPTION_CODE, ACME_CLIENT_ID, ACME_CLIENT_SECRET, ACME_RESOURCE,
+   ACME_PERMISSIONS, optionally ACME_TOKEN_URL / ACME_DEFAULT_PERMISSIONS / ACME_BASE_URL
+   (falling back to the CCV2_* values). CCV2_DEFAULT_SUBSCRIPTION names the default.
+3. A JSON file named by CCV2_CONFIG for several subscriptions. String values may contain
    `${ENV_VAR}` placeholders so secrets stay in the environment, not in the file.
 
 Permissions are per environment code and default to read-only. An environment that is not
@@ -156,8 +160,13 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # Multi-subscription config file (JSON). When set, the flat CCV2_* variables are ignored.
+    # Multi-subscription config file (JSON). When set, the other CCV2_* variables are ignored.
     ccv2_config: str | None = None
+
+    # Multi-subscription from environment variables: comma-separated names, each read from
+    # <NAME>_SUBSCRIPTION_CODE, <NAME>_CLIENT_ID, ... (see module docstring).
+    ccv2_subscriptions: str = ""
+    ccv2_default_subscription: str = ""
 
     # Single-subscription flat configuration.
     ccv2_subscription_name: str = "default"
@@ -228,10 +237,51 @@ def load_config_file(path: str | Path) -> AppConfig:
     return AppConfig(subscriptions=subs, default_subscription=default)
 
 
+def _env_prefix(name: str) -> str:
+    return re.sub(r"[^A-Za-z0-9]+", "_", name).upper()
+
+
+def _perm_set(spec: str) -> set[str]:
+    return _validate_perms({p.strip() for p in spec.split(",") if p.strip()}, "default_permissions")
+
+
+def load_config_env_multi(settings: Settings) -> AppConfig:
+    names = [n.strip() for n in settings.ccv2_subscriptions.split(",") if n.strip()]
+    subs: dict[str, SubscriptionConfig] = {}
+    for name in names:
+        pre = _env_prefix(name)
+
+        def get(key: str, fallback: str = "") -> str:
+            return os.environ.get(f"{pre}_{key}", fallback)
+
+        required = {k: get(k) for k in ("SUBSCRIPTION_CODE", "CLIENT_ID", "CLIENT_SECRET", "RESOURCE")}
+        token_url = get("TOKEN_URL", settings.ccv2_token_url)
+        missing = [f"{pre}_{k}" for k, v in required.items() if not v] + ([f"{pre}_TOKEN_URL (or CCV2_TOKEN_URL)"] if not token_url else [])
+        if missing:
+            raise ConfigError(f"subscription {name!r}: missing " + ", ".join(missing))
+        subs[name] = SubscriptionConfig(
+            name=name,
+            code=required["SUBSCRIPTION_CODE"],
+            client_id=required["CLIENT_ID"],
+            client_secret=required["CLIENT_SECRET"],
+            token_url=token_url,
+            resource=required["RESOURCE"],
+            base_url=get("BASE_URL", settings.ccv2_base_url),
+            permissions=parse_permissions(get("PERMISSIONS", "")),
+            default_permissions=_perm_set(get("DEFAULT_PERMISSIONS", settings.ccv2_default_permissions)),
+        )
+    default = settings.ccv2_default_subscription or (names[0] if len(names) == 1 else None)
+    if default and default not in subs:
+        raise ConfigError(f"CCV2_DEFAULT_SUBSCRIPTION {default!r} is not in CCV2_SUBSCRIPTIONS {names}")
+    return AppConfig(subscriptions=subs, default_subscription=default)
+
+
 def load_config(settings: Settings | None = None) -> AppConfig:
     settings = settings or Settings()
     if settings.ccv2_config:
         return load_config_file(settings.ccv2_config)
+    if settings.ccv2_subscriptions.strip():
+        return load_config_env_multi(settings)
     missing = [
         n
         for n, v in (
@@ -245,8 +295,8 @@ def load_config(settings: Settings | None = None) -> AppConfig:
     ]
     if missing:
         raise ConfigError(
-            "no configuration: set CCV2_CONFIG to a JSON file or the flat variables "
-            + ", ".join(missing)
+            "no configuration: set CCV2_CONFIG to a JSON file, CCV2_SUBSCRIPTIONS for several "
+            "subscriptions from the environment, or the flat variables " + ", ".join(missing)
         )
     sub = SubscriptionConfig(
         name=settings.ccv2_subscription_name,
