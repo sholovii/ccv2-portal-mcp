@@ -99,8 +99,9 @@ CCV2_PERMISSIONS=d1:read,build,deploy,properties_write;s1:read,build,deploy;p1:r
 
 ## Status
 
-Implemented and unit-tested against the API contract. Not yet validated against a live
-subscription; `scripts/smoke.py` runs every read tool against one in a single command.
+Read tools validated against a live subscription with `scripts/smoke.py`, which runs every
+read tool in one command. Write tools are implemented and unit-tested against the API
+contract but have not yet been exercised live.
 
 ## Development
 

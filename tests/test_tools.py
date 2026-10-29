@@ -106,3 +106,13 @@ async def test_tools_registered_with_prefix(configured):
     assert names >= {"ccv2portal_list_environments", "ccv2portal_get_build_log", "ccv2portal_wait_for_deployment"}
     assert all(n.startswith("ccv2portal_") for n in names)
     assert all(t.annotations.read_only_hint for t in tools if t.name.startswith(("ccv2portal_list_", "ccv2portal_get_", "ccv2portal_wait_")))
+
+
+def test_list_certificates_tolerates_null_lists(configured):
+    # the live portal sends "endpoints": null for unused certificates
+    configured.route("GET", f"/v2/subscriptions/{SUB}/certificates", {"value": [
+        {"code": "c1", "name": "old", "domains": None, "endpoints": None, "expirationDate": "2020-01-01T00:00:00Z"},
+    ], "count": 1})
+    out = server.ccv2portal_list_certificates()
+    assert out.certificates[0].endpoints == [] and out.certificates[0].domains == []
+    assert out.certificates[0].days_to_expiry < 0

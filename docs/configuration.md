@@ -155,6 +155,12 @@ claude mcp add ccv2-portal -- uv --directory /path/to/ccv2-portal-mcp run ccv2-p
   with HTTP 200; the server reports that as an authentication error.
 - Tokens are cached and refreshed 30 seconds before expiry; a 401 triggers one refresh.
 - Listings are paged at 100 items; tools page internally.
+- HTTP 403 means the technical user's role or environment list does not cover the call.
+  Two cases seen live: scaling reads are refused for a `CUSTOMER_DEVELOPER` technical
+  user, and the deployment-modes listing is refused when the technical user lacks *any*
+  environment of the subscription, since that call is subscription-wide. Tools that depend
+  on it (deployment validation, the pre-deploy checklist) then report the modes as unknown
+  instead of failing.
 - HTTP 429 is retried with backoff. HTTP 501 means a feature such as deployment cancellation
   is not enabled for the subscription. Other errors carry the portal's RFC 7807 title and
   detail plus a plain-language hint.

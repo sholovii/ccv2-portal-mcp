@@ -18,8 +18,26 @@ from ccv2_portal_mcp.auth import AuthError
 from ccv2_portal_mcp.client import PortalError
 
 
+FAILURES: list[str] = []
+
+
 def step(title: str):
     print(f"\n=== {title}")
+
+
+def attempt(title: str, fn):
+    """Run one step; report a portal/auth error and continue with the next step."""
+    step(title)
+    try:
+        return fn()
+    except (PortalError, AuthError) as exc:
+        print(f"FAILED: {exc}", file=sys.stderr)
+        FAILURES.append(f"{title}: {exc}")
+        return None
+    except Exception as exc:  # a bug in the tool, not the portal: report and keep going
+        print(f"CRASHED: {type(exc).__name__}: {exc}", file=sys.stderr)
+        FAILURES.append(f"{title}: {type(exc).__name__}: {str(exc).splitlines()[0]}")
+        return None
 
 
 def show(obj, keys: list[str] | None = None, limit: int = 5):
@@ -65,8 +83,9 @@ def main() -> int:
         if detail.scaling:
             print("scaling keys:", sorted(detail.scaling))
 
-        step("get_deployment_modes")
-        show(server.ccv2portal_get_deployment_modes())
+        modes = attempt("get_deployment_modes", server.ccv2portal_get_deployment_modes)
+        if modes is not None:
+            show(modes)
 
         step("list_builds (limit 5)")
         builds = server.ccv2portal_list_builds(limit=5)
@@ -74,10 +93,10 @@ def main() -> int:
             print(f"  {b.code:12} {b.status or '':10} {b.branch or '':40} {b.buildStartTimestamp}")
         build_code = args.build or (builds.builds[0].code if builds.builds else None)
 
-        step("list_builds pagination (limit 150 -> expect two pages)")
         t0 = time.monotonic()
-        many = server.ccv2portal_list_builds(limit=150)
-        print(f"got {len(many.builds)} builds in {time.monotonic() - t0:.2f}s")
+        many = attempt("list_builds pagination (limit 150 -> expect two pages)", lambda: server.ccv2portal_list_builds(limit=150))
+        if many is not None:
+            print(f"got {len(many.builds)} builds in {time.monotonic() - t0:.2f}s")
 
         if build_code:
             step(f"get_build {build_code}")
@@ -85,11 +104,11 @@ def main() -> int:
             print("terminal:", bd.terminal, "progress:", bd.progress and bd.progress.model_dump(include={"buildStatus", "percentage", "numberOfTasks", "errorMessage"}))
             print("deployments from it:", [d.code for d in bd.deployments])
 
-            step(f"get_build_log {build_code} (mode=errors)")
             t0 = time.monotonic()
-            lg = server.ccv2portal_get_build_log(build_code)
-            print(f"({time.monotonic() - t0:.2f}s) entries={lg.entries} entry={lg.entry} total_lines={lg.total_lines} mode={lg.mode} returned={lg.returned_lines}")
-            print("\n".join(lg.lines[:15]))
+            lg = attempt(f"get_build_log {build_code} (mode=errors)", lambda: server.ccv2portal_get_build_log(build_code))
+            if lg is not None:
+                print(f"({time.monotonic() - t0:.2f}s) entries={lg.entries} entry={lg.entry} total_lines={lg.total_lines} mode={lg.mode} returned={lg.returned_lines}")
+                print("\n".join(lg.lines[:15]))
 
         step(f"list_deployments env={env} (limit 5)")
         deps = server.ccv2portal_list_deployments(environment=env, limit=5)
@@ -106,8 +125,23 @@ def main() -> int:
                 for st in dd.progress.stages:
                     print(f"  stage {st.name!r:35} {st.status} failed={st.failed_steps}")
 
-            step(f"wait_for_deployment {dep_code} (bounded)")
-            show(server.ccv2portal_wait_for_deployment(dep_code, timeout_sec=5))
+            w = attempt(f"wait_for_deployment {dep_code} (bounded)", lambda: server.ccv2portal_wait_for_deployment(dep_code, timeout_sec=5))
+            if w is not None:
+                show(w)
+
+        for name, fn in (
+            ("list_endpoints", lambda: server.ccv2portal_list_endpoints(env)),
+            ("list_certificates", server.ccv2portal_list_certificates),
+            ("list_backups", lambda: server.ccv2portal_list_backups(env)),
+            ("list_restores", lambda: server.ccv2portal_list_restores(env)),
+            ("get_scaling_options", lambda: server.ccv2portal_get_scaling_options(env)),
+            ("list_scheduled_activities", lambda: server.ccv2portal_list_scheduled_activities(env)),
+            ("whats_deployed", server.ccv2portal_whats_deployed),
+            (f"release_timeline (7 days, env={env})", lambda: server.ccv2portal_release_timeline(days=7, environment=env)),
+        ):
+            r = attempt(name, fn)
+            if r is not None:
+                show(r)
 
         step("rapid polling: 10 progress calls back to back (429 check)")
         if build_code:
@@ -117,6 +151,11 @@ def main() -> int:
                 client.build_progress(build_code)
             print(f"10 calls in {time.monotonic() - t0:.2f}s, no 429 raised")
 
+        if FAILURES:
+            print("\nFAILED STEPS:")
+            for f in FAILURES:
+                print(" -", f)
+            return 1
         print("\nOK")
         return 0
     except (PortalError, AuthError) as exc:

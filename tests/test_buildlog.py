@@ -26,3 +26,11 @@ def test_tail_truncation_marks():
     text = "\n".join(str(i) for i in range(100))
     lines, total, truncated = buildlog.select_lines(text, tail=80, max_lines=10)
     assert truncated and len(lines) == 10 and lines[-1].endswith("99")
+
+
+def test_first_error_ignores_exception_class_names():
+    # a successful build log lists files such as FooException.class; that is not an error
+    text = "INFO stdout: [delete] Deleting x/DbAppenderLoggingException.class\nINFO done\n"
+    assert buildlog.first_error(text) is None
+    text += "Caused by: java.lang.IllegalStateException: boom\n"
+    assert buildlog.first_error(text)[-1].endswith("IllegalStateException: boom")

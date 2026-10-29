@@ -145,6 +145,8 @@ class PortalClient:
             423: "locked: the environment is locked by another operation",
             501: "not enabled: this feature must be switched on in the Cloud Portal for the subscription",
         }.get(resp.status_code, "")
+        if resp.status_code == 403 and detail and "environment" in detail.lower():
+            hint += "; grant the technical user that environment in the Cloud Portal (User Management -> Technical Users -> Edit -> Environment Access)"
         msg = f"{method} {path}: HTTP {resp.status_code}"
         if hint:
             msg += f" ({hint})"

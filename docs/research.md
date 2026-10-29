@@ -250,12 +250,30 @@ State them in the README so nobody chases them.
 
 ## 6. Open questions to verify against a real subscription
 
+Answered by the first live run of `scripts/smoke.py` (2026-10-29, read tools only):
+
+- getServices lives at `/subscriptions/{code}/environments/{env}/services` (the help page
+  path without `/subscriptions/` is wrong).
+- Ten back-to-back progress calls produced no 429.
+- List DTOs carry explicit `null` for empty arrays (`endpoints: null` on certificates);
+  models treat null as absent.
+- `GET /deploymentmodes` is subscription-wide and answers 403 ("Not allowed to read
+  environment 'p1'") when the technical user lacks any one environment, even though
+  environments and deployments of that environment are readable. The server treats the
+  modes as unknown in that case.
+- `GET .../scaling` and `.../scalingOptions` answer 403 for a technical user with the
+  `CUSTOMER_DEVELOPER` role ("Not authorized to access environment scaling details").
+- Deployment progress stage names are i18n keys such as
+  `DEPLOYMENT_INSIGHT.ROLLING_DEPLOYMENT.NAME`.
+- Build logs are one `releaselog-<code>.txt` entry, ~12k lines for a full build.
+
+Still open:
+
 1. Does putProperty apply configuration now, or is a UI apply still needed (KBA 3285271)?
-2. Exact path of getServices (with or without `/subscriptions/`).
-3. Does createDatarestore accept a prod backup into a staging target without a ticket?
-4. Actual 429 behaviour under 30 s polling.
-5. Is deployment cancellation enabled on the subscription (501 otherwise)?
-6. Secret expiry length on a freshly created technical user.
+2. Does createDatarestore accept a prod backup into a staging target without a ticket?
+3. Is deployment cancellation enabled on the subscription (501 otherwise)?
+4. Secret expiry length on a freshly created technical user.
+5. Whether scaling needs `CUSTOMER_SYS_ADMIN` on the technical user.
 
 ## Sources
 

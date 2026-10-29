@@ -13,7 +13,7 @@ ERROR_PATTERNS = [
         r"\[ERROR\]",
         r"\bERROR\b",
         r"error: ",
-        r"Exception\b",
+        r"Exception(?![\w$.])",  # "FooException: ..." but not "FooException.class"
         r"FAILED\b",
         r"Tests run: .*Failures: [1-9]",
         r"Compilation failed",
