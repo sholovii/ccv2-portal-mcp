@@ -23,8 +23,8 @@ PAGE = r"""<!doctype html>
   header .spacer { flex: 1; }
   button { font: inherit; padding: 6px 12px; border: 1px solid var(--line); background: var(--chip); color: var(--text); border-radius: 6px; cursor: pointer; }
   button:hover { border-color: var(--muted); }
-  main { padding: 20px 24px; display: grid; gap: 20px; max-width: 1400px; }
-  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; }
+  main { padding: 20px 24px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; max-width: 1400px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; min-width: 0; overflow-x: auto; }
   h2 { font-size: 15px; margin: 0 0 12px; }
   h3 { font-size: 13px; margin: 14px 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
   table { width: 100%; border-collapse: collapse; }
@@ -40,6 +40,7 @@ PAGE = r"""<!doctype html>
   .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); } .info { color: var(--info); } .muted { color: var(--muted); }
   .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.bad { background: var(--bad); } .dot.muted { background: var(--muted); }
   .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
+  .grid2 > * { min-width: 0; }
   .err { white-space: pre-wrap; color: var(--bad); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
   details summary { cursor: pointer; color: var(--muted); }
