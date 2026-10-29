@@ -26,11 +26,11 @@ def test_create_build_posts_and_names(configured):
 
     def handler(request):
         seen.update(json.loads(request.content))
-        return (201, {"subscriptionCode": SUB, "code": "20261028.1"})
+        return (201, {"subscriptionCode": SUB, "code": "20260101.1"})
 
     configured.route("POST", f"/v2/subscriptions/{SUB}/builds", handler=handler)
     out = server.ccv2portal_create_build("feature/x y")
-    assert out.code == "20261028.1" and out.executed
+    assert out.code == "20260101.1" and out.executed
     assert seen["branch"] == "feature/x y" and seen["applicationCode"] == "commerce-cloud"
     assert seen["name"].startswith("feature-x-y-")
 

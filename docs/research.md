@@ -250,7 +250,7 @@ State them in the README so nobody chases them.
 
 ## 6. Open questions to verify against a real subscription
 
-Answered by the first live run of `scripts/smoke.py` (2026-10-29, read tools only):
+Answered by live runs against a subscription (October 2026):
 
 - getServices lives at `/subscriptions/{code}/environments/{env}/services` (the help page
   path without `/subscriptions/` is wrong).
@@ -258,7 +258,7 @@ Answered by the first live run of `scripts/smoke.py` (2026-10-29, read tools onl
 - List DTOs carry explicit `null` for empty arrays (`endpoints: null` on certificates);
   models treat null as absent.
 - `GET /deploymentmodes` is subscription-wide and answers 403 ("Not allowed to read
-  environment 'p1'") when the technical user lacks any one environment, even though
+  environment '<code>'") when the technical user lacks any one environment, even though
   environments and deployments of that environment are readable. The server treats the
   modes as unknown in that case.
 - `GET .../scaling` and `.../scalingOptions` answer 403 for a technical user with the
@@ -266,6 +266,17 @@ Answered by the first live run of `scripts/smoke.py` (2026-10-29, read tools onl
 - Deployment progress stage names are i18n keys such as
   `DEPLOYMENT_INSIGHT.ROLLING_DEPLOYMENT.NAME`.
 - Build logs are one `releaselog-<code>.txt` entry, ~12k lines for a full build.
+- createBuild: the progress endpoint reports `buildStatus: UNKNOWN` with no percentage
+  for the first ~6 minutes while the build is queued, then BUILDING with coarse
+  percentages (28, 42, 57, 61, 95), SUCCESS after about half an hour. 21 tasks;
+  `startedTasks` carries task code, name and start time.
+- createDeployment to a non-production environment (ROLLING_UPDATE + UPDATE): accepted at
+  once with the build code, environment code, mode and strategy; progress went
+  0 → 50 → 66 % within 3 minutes (data migration), sat at 66 % for 25 minutes (rolling
+  deployment), 83 %, then DEPLOYED after about half an hour. Stages are
+  `DEPLOYMENT_INSIGHT.DATA_MIGRATION.NAME` and `DEPLOYMENT_INSIGHT.ROLLING_DEPLOYMENT.NAME`.
+  The deployment DTO carries `createdTimestamp` and `deployedTimestamp`. The deployer of
+  a technical-user deployment shows as the technical user's id plus its owner's S-user.
 
 Still open:
 

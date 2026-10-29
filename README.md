@@ -10,8 +10,8 @@ Everything goes through SAP's official Cloud Portal API. Nothing is scraped from
 
 ```
 "What is deployed on staging and prod right now, and are they on the same branch?"
-"Why did build 20261028.3 fail?"
-"Run the pre-deploy checklist for p1 with build 20261028.3."
+"Why did build 20260101.1 fail?"
+"Run the pre-deploy checklist for p1 with build 20260101.1."
 "Deploy it to s1 with a database update, take a quick backup first."
 "Put p1 into maintenance mode."
 "Roll d1 back to the previous build."
@@ -100,8 +100,10 @@ CCV2_PERMISSIONS=d1:read,build,deploy,properties_write;s1:read,build,deploy;p1:r
 ## Status
 
 Read tools validated against a live subscription with `scripts/smoke.py`, which runs every
-read tool in one command. Write tools are implemented and unit-tested against the API
-contract but have not yet been exercised live.
+read tool in one command. Builds and rolling deployments with data migration have been run
+live through the write tools. The remaining write tools (properties, endpoints,
+certificates, backups, restores, scaling, scheduled activities, blue-green, cancellation)
+are unit-tested against the API contract but not yet exercised live.
 
 ## Development
 

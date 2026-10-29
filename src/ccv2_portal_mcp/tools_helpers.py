@@ -67,7 +67,10 @@ def _wait(kind: str, code: str, fetch, terminal: set[str], timeout_sec: int | No
                 hint = f"{kind} finished with {status}."
                 succeeded = status in {"SUCCESS", "DEPLOYED"}
             else:
-                hint = f"Still {status or 'running'} after {elapsed:.0f}s; call again to keep waiting (each call waits at most {s.wait_max_sec}s)."
+                shown = status or "running"
+                if kind == "build" and status in {None, "UNKNOWN", "SCHEDULED"}:
+                    shown = "queued (the portal reports UNKNOWN until the build starts, typically within 5-10 min)"
+                hint = f"Still {shown} after {elapsed:.0f}s; call again to keep waiting (each call waits at most {s.wait_max_sec}s)."
                 succeeded = None
             return WaitResult(
                 subscription=client.sub.name, kind=kind, code=code, status=status, percentage=pct,
