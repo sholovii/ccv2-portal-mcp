@@ -99,8 +99,7 @@ environments entirely.
 |---|---|
 | `read` | every read tool on that environment |
 | `build` | `create_build` (subscription-wide; granted if any environment has it) |
-| `deploy` | deployments, cancellations, blue-green decisions, traffic split, rollback |
-| `deploy_prod` | the same on a production environment, in addition to `deploy` |
+| `deploy` | deployments, cancellations, blue-green decisions, traffic split, rollback; on production every such call also needs `confirm=true` |
 | `properties_write` | `set_property` |
 | `endpoints_write` | maintenance mode, certificate upload / rotation / deletion |
 | `backup_restore` | backups, restores, `backup_first` on deployments |
@@ -121,6 +120,9 @@ deletions and scaling changes require `confirm=true` on the call.
 | `BUILD_LOG_MAX_LINES` | `400` | lines returned by `get_build_log` at most |
 | `RETRY_429_MAX` | `3` | retries on HTTP 429 |
 | `AUDIT_LOG_PATH` | empty | JSONL audit file; empty means stderr only |
+| `UI_HOST` / `UI_PORT` | `127.0.0.1` / `8850` | bind address of the standalone status page (`ccv2-portal-mcp ui`) |
+| `UI_CACHE_SEC` | `30` | how long the status page caches live portal data |
+| `UI_AUDIT_LINES` | `25` | audit entries shown on the status page |
 
 ## Running
 
@@ -145,6 +147,27 @@ claude mcp add --transport http ccv2-portal http://localhost:8849/mcp
 ```bash
 claude mcp add ccv2-portal -- uv --directory /path/to/ccv2-portal-mcp run ccv2-portal-mcp
 ```
+
+## Status page
+
+A read-only page with the server facts (version, transport, uptime, settings, registered
+tools), each subscription's configuration (code, masked client id, whether secret and
+resource are set, configured permissions) and live state (token check, every environment
+the portal returns with status, deployment and hibernation state, the deployed build and
+branch, any running deployment, the permissions the agent holds there), plus the newest
+entries of the audit log. It never changes anything and shows no secrets.
+
+- Under `MCP_TRANSPORT=streamable-http` (the container) it is served by the MCP server
+  itself at `/` on the MCP port: `http://localhost:8849/`. `/api/status` returns the same
+  data as JSON and `/healthz` answers `{"ok": true}`.
+- Under stdio run `ccv2-portal-mcp ui` (options `--host`, `--port`); it reads the same
+  configuration and serves `http://127.0.0.1:8850/`. It cannot tell whether the stdio
+  server inside the AI client is running, and says so.
+
+Live data is cached for `UI_CACHE_SEC`; the Refresh button bypasses the cache. The page
+reloads itself every minute. The page has no authentication: it shows subscription codes,
+environment names and deployed builds, so keep it bound to localhost or a private network. Dynamic configuration through the UI is planned later (see
+`docs/research.md`, section 8); for now `.env` or the JSON file stay the source of truth.
 
 ## Portal API behaviour the server handles
 

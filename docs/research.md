@@ -169,7 +169,7 @@ Recurring pain points:
 | Tool | Portal API | Guard |
 |---|---|---|
 | `create_build` | createBuild | `build` permission |
-| `create_deployment` | createDeployment | `deploy` / `deploy_prod`; INITIALIZE, RECREATE and prod require `confirm: true`; validate against getDeploymentModes; refuse if env has a running deployment |
+| `create_deployment` | createDeployment | `deploy`; INITIALIZE, RECREATE and prod require `confirm: true`; validate against getDeploymentModes; refuse if env has a running deployment |
 | `cancel_deployment` | cancellationoptions + cancellation | reason mandatory; 501 → explain feature flag |
 | `blue_green_decision` | createDeploymentDecision | ACCEPT / REJECT / PREPARE_CANARY |
 | `set_traffic_split` | updateTrafficSplit | |
@@ -234,7 +234,7 @@ State them in the README so nobody chases them.
   creation date and warn at 75 days.
 - **Host**: `portalapi.commerce.ondemand.com` only.
 - **Safety model**: per-environment permission flags
-  (`read`, `build`, `deploy`, `deploy_prod`, `properties_write`, `endpoints_write`,
+  (`read`, `build`, `deploy`, `properties_write`, `endpoints_write`,
   `scaling`, `backup_restore`), read-only default, `confirm: true` for destructive
   ops, append-only audit log of every write with who/what/when.
 - **Long-running ops**: never block > ~60 s inside a tool; return codes and offer
@@ -330,7 +330,11 @@ Still open:
   Plus a stdio entry point via `uv run` / `uvx` for local development.
 - Stack: Python + MCP Python SDK 2.x.
 
-## 8. Phase 3 (planned, after live testing): local UI and database-backed config
+## 8. Phase 3 (planned): local UI and database-backed config
+
+Step one of this, a read-only status page served by the MCP server (or by
+`ccv2-portal-mcp ui` under stdio), shipped in October 2026. The configuration stays in
+`.env` / JSON; the dynamic part below is still to come.
 
 Intended use is a personal, local tool: Claude Code on the developer's machine talking to
 the server, nothing shared or deployed. Under that model the configuration should not live

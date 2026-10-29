@@ -32,7 +32,6 @@ from .config import (
     PERM_BACKUP_RESTORE,
     PERM_BUILD,
     PERM_DEPLOY,
-    PERM_DEPLOY_PROD,
     PERM_ENDPOINTS_WRITE,
     PERM_PROPERTIES_WRITE,
     PERM_SCALING,
@@ -54,12 +53,9 @@ def _confirm(confirm: bool, why: str) -> None:
 
 
 def _deploy_perms(client: PortalClient, env: str) -> bool:
-    """Require deploy (and deploy_prod on production). Returns whether env is production."""
+    """Require deploy on the environment. Returns whether env is production (confirm guard)."""
     require(client.sub, env, PERM_DEPLOY)
-    prod = is_production(env_or_fail(client, env), env)
-    if prod:
-        require(client.sub, env, PERM_DEPLOY_PROD)
-    return prod
+    return is_production(env_or_fail(client, env), env)
 
 
 def allowed_modes(client: PortalClient, env: str) -> tuple[set[str] | None, set[str] | None]:
@@ -380,7 +376,7 @@ def ccv2portal_delete_backup(environment: str, backup_code: str, confirm: bool =
         "Restore a backup into target_environment. source_environment defaults to the target; set it to another "
         "environment (e.g. p1 -> s1) for a data refresh. restore_point_time (ISO 8601) picks a point in time for "
         "QUICK backups. The target's data is replaced and a RECREATE deployment is usually needed afterwards. "
-        "Always needs confirm=true; a production target also needs the deploy_prod permission."
+        "Always needs confirm=true."
     ),
     annotations=DESTRUCTIVE,
 )
@@ -392,8 +388,7 @@ def ccv2portal_restore_backup(
     client = registry.client(subscription)
     require(client.sub, target_environment, PERM_BACKUP_RESTORE)
     source = source_environment or target_environment
-    if is_production(env_or_fail(client, target_environment), target_environment):
-        require(client.sub, target_environment, PERM_DEPLOY_PROD)
+    env_or_fail(client, target_environment)
     backups = {b.get("databackupCode"): b for b in client.backups(source)}
     if backup_code not in backups:
         raise PortalError(f"backup {backup_code} not found on {source}; known: {sorted(backups)}")

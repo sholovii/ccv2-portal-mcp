@@ -3,7 +3,7 @@ import pytest
 
 from ccv2_portal_mcp.auth import AUTH_HEADER, AuthError
 from ccv2_portal_mcp.client import PortalError
-from tests.conftest import BASE, SUB
+from tests.conftest import SUB
 
 
 def test_token_fetched_once_and_sent_in_approuter_header(portal, client):

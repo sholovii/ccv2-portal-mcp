@@ -31,7 +31,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 PERM_READ = "read"
 PERM_BUILD = "build"
 PERM_DEPLOY = "deploy"
-PERM_DEPLOY_PROD = "deploy_prod"
 PERM_PROPERTIES_WRITE = "properties_write"
 PERM_ENDPOINTS_WRITE = "endpoints_write"
 PERM_SCALING = "scaling"
@@ -42,7 +41,6 @@ ALL_PERMISSIONS = frozenset(
         PERM_READ,
         PERM_BUILD,
         PERM_DEPLOY,
-        PERM_DEPLOY_PROD,
         PERM_PROPERTIES_WRITE,
         PERM_ENDPOINTS_WRITE,
         PERM_SCALING,
@@ -183,6 +181,13 @@ class Settings(BaseSettings):
     mcp_transport: str = "stdio"
     mcp_host: str = "0.0.0.0"
     mcp_port: int = 8849
+
+    # Status page. Served on the MCP port under streamable-http; `ccv2-portal-mcp ui`
+    # serves it on its own for stdio setups. Live portal data is cached for UI_CACHE_SEC.
+    ui_host: str = "127.0.0.1"
+    ui_port: int = 8850
+    ui_cache_sec: int = 30
+    ui_audit_lines: int = 25
 
     # HTTP behaviour.
     http_timeout_sec: float = 30.0

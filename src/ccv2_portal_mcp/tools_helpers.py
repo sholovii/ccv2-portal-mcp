@@ -13,7 +13,6 @@ from .app import (
     DEPLOYMENT_TERMINAL,
     DESTRUCTIVE,
     READ_ONLY,
-    ConfirmationRequired,
     active_deployment,
     audited,
     backup_state,
@@ -29,7 +28,7 @@ from .app import (
 )
 from .audit import SECRET_KEY
 from .client import PortalClient, PortalError
-from .config import PERM_BACKUP_RESTORE, PERM_DEPLOY, PERM_DEPLOY_PROD, PERM_READ
+from .config import PERM_BACKUP_RESTORE, PERM_DEPLOY, PERM_READ
 from .models import (
     Check,
     ChecklistResult,
@@ -185,7 +184,7 @@ def ccv2portal_whats_deployed(environments: list[str] | None = None, subscriptio
     description=(
         "Roll an environment back to the build of its previous successful deployment by redeploying it with "
         "database_update_mode=NONE (the portal has no rollback primitive; this is the documented practice). "
-        "confirm=false (default) only returns the plan. Needs deploy (and deploy_prod on production). "
+        "confirm=false (default) only returns the plan. Needs the deploy permission. "
         "Database schema changes made by the current build are NOT reverted."
     ),
     annotations=DESTRUCTIVE,
@@ -197,10 +196,7 @@ def ccv2portal_rollback_environment(
 ) -> RollbackPlan:
     client = registry.client(subscription)
     require(client.sub, environment, PERM_DEPLOY)
-    env_raw = env_or_fail(client, environment)
-    prod = is_production(env_raw, environment)
-    if prod:
-        require(client.sub, environment, PERM_DEPLOY_PROD)
+    env_or_fail(client, environment)
     strategy = strategy.upper()
     if strategy not in {"ROLLING_UPDATE", "RECREATE"}:
         raise PortalError("rollback strategy must be ROLLING_UPDATE or RECREATE")
@@ -344,7 +340,7 @@ def ccv2portal_pre_deploy_checklist(
         checks.append(Check(name="hibernation", level="fail", detail=f"hibernationStatus={hib}"))
 
     perms = client.sub.perms_for(environment)
-    need = {PERM_DEPLOY} | ({PERM_DEPLOY_PROD} if prod else set())
+    need = {PERM_DEPLOY}
     missing = need - perms
     checks.append(Check(name="agent permissions", level="ok" if not missing else "fail", detail=f"granted {sorted(perms)}" + (f", missing {sorted(missing)}" if missing else "")))
 

@@ -72,6 +72,20 @@ class PortalClient:
 
     # ----------------------------------------------------------------- low level
 
+    def auth_check(self) -> dict[str, Any]:
+        """Obtain (or reuse) a token and report how it went; never raises."""
+        t0 = time.monotonic()
+        try:
+            self._tokens.token()
+        except AuthError as exc:
+            return {"ok": False, "error": str(exc), "latency_ms": round((time.monotonic() - t0) * 1000)}
+        left = self._tokens.seconds_left()
+        return {
+            "ok": True,
+            "latency_ms": round((time.monotonic() - t0) * 1000),
+            "token_expires_in_sec": round(left) if left is not None else None,
+        }
+
     @property
     def prefix(self) -> str:
         return f"/subscriptions/{self.sub.code}"

@@ -59,6 +59,13 @@ class TokenProvider:
             self._token = None
             self._expires_at = 0.0
 
+    def seconds_left(self) -> float | None:
+        """Lifetime left on the cached token, or None when there is none."""
+        with self._lock:
+            if not self._token:
+                return None
+            return max(0.0, self._expires_at - time.monotonic())
+
     def header(self) -> dict[str, str]:
         return {AUTH_HEADER: f"Bearer {self.token()}"}
 

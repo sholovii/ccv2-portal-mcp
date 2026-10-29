@@ -34,10 +34,10 @@ permission in the table and, where noted, `confirm=true`.
 | Tool | Permission | Confirmation required |
 |---|---|---|
 | `create_build` | `build` on any environment | – |
-| `create_deployment` | `deploy`, plus `deploy_prod` on production | production, `INITIALIZE`, `RECREATE` |
-| `cancel_deployment` | `deploy`, plus `deploy_prod` on production | always |
-| `blue_green_decision` | `deploy`, plus `deploy_prod` on production | production |
-| `set_traffic_split` | `deploy`, plus `deploy_prod` on production | production |
+| `create_deployment` | `deploy` | production, `INITIALIZE`, `RECREATE` |
+| `cancel_deployment` | `deploy` | always |
+| `blue_green_decision` | `deploy` | production |
+| `set_traffic_split` | `deploy` | production |
 | `set_property` | `properties_write` | production |
 | `set_maintenance_mode` | `endpoints_write` | production |
 | `upload_certificate` | `endpoints_write` on any environment | – |
@@ -45,7 +45,7 @@ permission in the table and, where noted, `confirm=true`.
 | `delete_certificate` | `endpoints_write` on any environment | always |
 | `create_backup` / `cancel_backup` | `backup_restore` | – |
 | `delete_backup` | `backup_restore` | always |
-| `restore_backup` | `backup_restore`, plus `deploy_prod` for a production target | always |
+| `restore_backup` | `backup_restore` | always |
 | `cancel_restore` | `backup_restore` | always |
 | `update_scaling` | `scaling` | always |
 | `schedule_activity` / `reschedule_activity` / `cancel_activity` | `scaling` | hibernating production |
@@ -77,7 +77,7 @@ Notes on behaviour:
 | Tool | What it does |
 |---|---|
 | `whats_deployed` | which build, branch and version is live on each environment, who deployed it and when, with a plain-language comparison and any deployment in progress |
-| `rollback_environment` | finds the previous successful deployment's build and redeploys it with `NONE`. Returns the plan by default; `confirm=true` executes. Needs `deploy` (and `deploy_prod`). Database schema changes are not reverted |
+| `rollback_environment` | finds the previous successful deployment's build and redeploys it with `NONE`. Returns the plan by default; `confirm=true` executes. Needs `deploy`. Database schema changes are not reverted |
 | `diagnose_build_failure` | classifies the first error of a failed build (branch-not-found, compile-error, test-failure, spring-context, out-of-memory, manifest, dependency, transient) and returns the evidence lines and a suggestion |
 | `pre_deploy_checklist` | environment status and hibernation, agent permissions, running deployment, build status and branch, allowed modes, last backup age, maintenance mode, certificate expiry, pending blue-green decision. `ready=true` when nothing failed |
 | `compare_properties` | values of the given keys in two environments, with differences counted; secret-looking values compared but masked |

@@ -1,7 +1,5 @@
-import pytest
 
 from ccv2_portal_mcp import server
-from ccv2_portal_mcp.app import ConfirmationRequired
 from tests.conftest import SUB, make_zip
 
 
@@ -79,7 +77,7 @@ def test_diagnose_build_failure_categories(configured):
 
 
 def test_pre_deploy_checklist(configured, client):
-    client.sub.permissions["p1"] = {"read", "deploy"}  # missing deploy_prod
+    client.sub.permissions["p1"] = {"read"}  # missing deploy
     configured.route("GET", f"/v2/subscriptions/{SUB}/builds/b1", {"code": "b1", "branch": "feature/wip", "status": "SUCCESS"})
     _deployments(configured, [{"code": "g1", "environmentCode": "p1", "buildCode": "b0", "status": "DEPLOYED", "strategy": "GREEN", "expireAtTimestamp": "2026-10-29T00:00:00Z"}])
     configured.route("GET", f"/v2/subscriptions/{SUB}/deploymentmodes", {"value": [{"environmentCode": "p1", "dataMigrationMode": ["NONE", "UPDATE"], "deploymentMode": ["ROLLING_UPDATE", "GREEN"]}]})
@@ -89,7 +87,7 @@ def test_pre_deploy_checklist(configured, client):
     out = server.ccv2portal_pre_deploy_checklist("p1", "b1", strategy="RECREATE")
     by = {c.name: c for c in out.checks}
     assert not out.ready
-    assert by["agent permissions"].level == "fail" and "deploy_prod" in by["agent permissions"].detail
+    assert by["agent permissions"].level == "fail" and "missing ['deploy']" in by["agent permissions"].detail
     assert by["build"].level == "ok" and by["branch naming"].level == "warn"
     assert by["allowed modes"].level == "fail" and "RECREATE" in by["allowed modes"].detail
     assert by["last backup"].level == "warn" and by["maintenance mode"].level == "warn"

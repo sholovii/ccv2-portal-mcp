@@ -51,6 +51,10 @@ Everything goes through SAP's official Cloud Portal API. Nothing is scraped from
 - **Several subscriptions** from one server, each with its own technical user and
   permissions, configured from variables or a JSON file; every tool takes a `subscription`
   argument.
+- **Status page**: a read-only page showing the server, the registered tools, each
+  subscription's configuration and authentication state, every environment with its
+  status, deployed build and the permissions the agent holds there, and the latest write
+  calls from the audit log.
 
 ## Quick start
 
@@ -63,8 +67,8 @@ cp .env.example .env        # fill in the technical-user values and the subscrip
 docker compose up -d --build
 ```
 
-The server now listens on `http://localhost:8849/mcp` (streamable HTTP). Register it with
-Claude Code:
+The server now listens on `http://localhost:8849/mcp` (streamable HTTP) and serves the
+status page at `http://localhost:8849/`. Register it with Claude Code:
 
 ```bash
 claude mcp add --transport http ccv2-portal http://localhost:8849/mcp
@@ -78,6 +82,12 @@ uv run ccv2-portal-mcp
 
 ```bash
 claude mcp add ccv2-portal -- uv --directory /path/to/ccv2-portal-mcp run ccv2-portal-mcp
+```
+
+Over stdio there is no HTTP port, so the status page runs as its own process:
+
+```bash
+uv run ccv2-portal-mcp ui          # http://127.0.0.1:8850/
 ```
 
 By default every environment is read-only. Grant more per environment in `.env`:

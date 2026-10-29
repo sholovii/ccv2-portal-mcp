@@ -18,7 +18,6 @@ from .audit import Audit
 from .auth import AuthError
 from .client import PortalClient, PortalError
 from .config import (
-    PERM_READ,
     AppConfig,
     ConfigError,
     Settings,

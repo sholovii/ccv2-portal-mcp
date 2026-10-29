@@ -88,9 +88,6 @@ def test_create_deployment_prod_requires_permission_and_confirm(configured, clie
     with pytest.raises(PermissionDenied, match="deploy"):
         server.ccv2portal_create_deployment("b1", "p1")
     client.sub.permissions["p1"] = {"read", "deploy"}
-    with pytest.raises(PermissionDenied, match="deploy_prod"):
-        server.ccv2portal_create_deployment("b1", "p1")
-    client.sub.permissions["p1"] = {"read", "deploy", "deploy_prod"}
     with pytest.raises(ConfirmationRequired, match="production"):
         server.ccv2portal_create_deployment("b1", "p1")
     configured.route("POST", f"/v2/subscriptions/{SUB}/deployments", {"code": "depP"}, status=201)
@@ -166,12 +163,6 @@ def test_backup_create_and_restore_cross_env(configured, client):
     configured.route("POST", f"/v2/subscriptions/{SUB}/environments/s1/datarestores", handler=handler)
     out = server.ccv2portal_restore_backup("s1", "bk1", source_environment="p1", confirm=True)
     assert out.code == "rs1" and seen == {"databackupCode": "bk1", "sourceEnvironmentCode": "p1"}
-
-
-def test_restore_into_prod_needs_deploy_prod(configured, client):
-    client.sub.permissions["p1"] = {"read", "backup_restore"}
-    with pytest.raises(PermissionDenied, match="deploy_prod"):
-        server.ccv2portal_restore_backup("p1", "bk1", confirm=True)
 
 
 def test_update_scaling_validates_and_confirms(configured, client):
