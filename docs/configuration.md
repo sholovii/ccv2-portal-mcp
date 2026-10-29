@@ -166,8 +166,8 @@ entries of the audit log. It never changes anything and shows no secrets.
 
 Live data is cached for `UI_CACHE_SEC`; the Refresh button bypasses the cache. The page
 reloads itself every minute. The page has no authentication: it shows subscription codes,
-environment names and deployed builds, so keep it bound to localhost or a private network. Dynamic configuration through the UI is planned later (see
-`docs/research.md`, section 8); for now `.env` or the JSON file stay the source of truth.
+environment names and deployed builds, so keep it bound to localhost or a private network.
+The page only displays configuration; `.env` or the JSON file remain the source of truth.
 
 ## Portal API behaviour the server handles
 

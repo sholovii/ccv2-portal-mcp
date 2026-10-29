@@ -1,7 +1,7 @@
 # CCv2 Cloud Portal MCP server — research
 
 Date: 2026-10-28. Scope: what the official SAP Commerce Cloud (CCv2) Cloud Portal API
-allows, what already exists in the ecosystem, and what an MCP server should wrap.
+allows, what already exists in the ecosystem, and what this server wraps.
 The full OpenAPI spec (v2.0.12, 52 operations) is checked in at
 `spec/cloud-portal-api-2.0.12.yaml` (extracted from the SAP Help page; SAP publishes it
 only inside the rendered page).
@@ -61,8 +61,8 @@ blogs, archived ccv2ctl with S-user certs) is broken.
 | **build** | getBuilds, createBuild, getBuild, deleteBuild, getBuildProgress, getBuildLogs | create: `{applicationCode ("commerce-cloud"), branch, name}` → `{code}`. Build DTO has branch, createdBy, status, buildVersion, deployed, properties[]. Progress: `{percentage, buildStatus, numberOfTasks, startedTasks[], errorMessage}`. Status: BUILDING / SUCCESS / FAIL / SCHEDULED / DELETED / UNKNOWN. Logs = **zip** via `Accept: application/octet-stream`. **No build cancel**. Undeployed builds soft-deleted after 6 months. |
 | **deployment** | getDeploymentModes, getDeployments, createDeployment, getDeployment, getDeploymentProgress, getDeploymentCancellationOptions, createDeploymentCancellation, createDeploymentDecision, getDeploymentDecisions, getTrafficSplit, updateTrafficSplit, getTrafficSplitHistory | create: `{buildCode, environmentCode, databaseUpdateMode NONE/UPDATE/INITIALIZE, strategy ROLLING_UPDATE/RECREATE/GREEN}` → `{code}`; 409/412/423 when env busy/locked. getDeploymentModes says which modes each env allows. Status: SCHEDULED / DEPLOYING / DEPLOYED / UNDEPLOYED / FAIL. Progress has `stages[{name,type,status PENDING/RUNNING/DONE/FAIL,logLink,steps[...]}]`. Deployment DTO has `previousDeploymentCode`, `canaryStatus`, `cancelation{}`. Cancellation: `{rollbackDatabase, cancelReason}`; **feature-flagged — 501 unless enabled in the portal**; only after "Deploy application" stage; no DB rollback in live prod during rolling update. Decision: ACCEPT / REJECT / PREPARE_CANARY (blue-green). Traffic split: per service/endpoint percentages (canary, since Jul 2024). |
 | **environment** | getEnvironments | `{code, name, type, status PROVISIONING/AVAILABLE/…, deploymentStatus, hibernationStatus}`. No get-by-code, no health endpoint. |
-| **services** | getServices (Aug 2026, help page only, not in yaml) | `[{code, name, runnable, desiredReplicas, availableReplicas}]`. Help page shows the path without `/subscriptions/` — verify. No start/stop/restart. |
-| **serviceProperties** | getProperty, putProperty | one property at a time per `{env}/services/{serviceCode}/properties/{key}`; `{key, value, flags[]}`; 403 for disallowed keys. KBA 3285271: a put on `hcs_common` succeeded but was not applied without "apply configuration" in the UI — verify current behaviour. No bulk import/export via API. |
+| **services** | getServices (Aug 2026, help page only, not in yaml) | `[{code, name, runnable, desiredReplicas, availableReplicas}]`. The help page shows the path without `/subscriptions/`; the real path is `/subscriptions/{code}/environments/{env}/services`. No start/stop/restart. |
+| **serviceProperties** | getProperty, putProperty | one property at a time per `{env}/services/{serviceCode}/properties/{key}`; `{key, value, flags[]}`; 403 for disallowed keys. KBA 3285271: a put on `hcs_common` succeeded but was not applied without "apply configuration" in the UI. No bulk import/export via API. |
 | **endpoint** | getEndpoints, createEndpoint, getEndpoint, updateEndpoint (merge-patch), deleteEndpoint, updateEndpoints (bulk PATCH, Apr 2026, help page only) | DTO: domainName, protocol, access, k8sService, k8sServiceVersion BLUE/GREEN, sslCertificate, mTLS, ipFilteringSets[codes], redirectSets, staticFileSet, denyPathsSet, responseHeaderSet, **maintenanceMode**, caching{…}, wafConfig{rateLimiting}. IP filter / redirect / deny-path / header sets are **referenced by code only** — no API to create them. |
 | **certificates** | getCertificates, createCertificate (PEM cert + key + CA), getCertificateDetails, deleteCertificate | no replace; rotate = create → patch endpoint → delete old. Shows expirationDate + which endpoints use it. |
 | **staticfiles** | list, create (multipart zip), get, delete (Sep 2025, help page only) | assign via endpoint patch |
@@ -145,7 +145,7 @@ Recurring pain points:
 - Auth friction: secret rotation, HTML login page instead of JSON, two hostnames,
   `resource` param, max 2 technical users per person.
 
-## 4. What the MCP server should do
+## 4. What the server does
 
 ### 4.1 Read tools (safe by default)
 
@@ -202,14 +202,7 @@ Recurring pain points:
 8. **Status normalization** — HTML login page → auth error; 302 from old host; 429
    backoff; 100 %-but-BUILDING; UNKNOWN.
 
-### 4.4 MCP resources and prompts
-
-- Resources: `ccv2://{sub}/environments`, `ccv2://{sub}/environments/{env}`,
-  `ccv2://{sub}/builds/{code}/log` (lazy, text).
-- Prompts: "release checklist for <env>", "investigate failed build <code>",
-  "why is staging different from prod".
-
-### 4.5 Integration with neighbouring tools
+### 4.4 Integration with neighbouring tools
 
 - Logs: deployments give exact time windows and build codes (log annotation
   `ccv2_cx_sap_com/build-code`); an agent can chain `get_deployment` with whatever log
@@ -219,19 +212,17 @@ Recurring pain points:
 - Notifications: a thin script reusing the same client can post to Slack or Teams. Not an
   MCP concern.
 
-### 4.6 Non-goals
+### 4.5 Non-goals
 
 Environment logs via OpenSearch, service restarts, DB copies for local dev, PITR of
 SAP-managed backups, hot-folder keys, IP-filter-set upload, DNS/CDN, user creation.
-State them in the README so nobody chases them.
 
 ## 5. Design notes
 
 - **Auth**: technical-user OAuth2 client_credentials with `resource`; header
   `x-approuter-authorization`; cache token, refresh 30 s before expiry; retry once on
   401; treat `text/html` responses as auth failures with an actionable message.
-  Multi-subscription config (one technical user per subscription); store the secret
-  creation date and warn at 75 days.
+  Multi-subscription config (one technical user per subscription).
 - **Host**: `portalapi.commerce.ondemand.com` only.
 - **Safety model**: per-environment permission flags
   (`read`, `build`, `deploy`, `properties_write`, `endpoints_write`,
@@ -240,17 +231,13 @@ State them in the README so nobody chases them.
 - **Long-running ops**: never block > ~60 s inside a tool; return codes and offer
   `wait_*` tools. Builds take 20–60 min, deployments similar.
 - **Pagination**: page internally, expose `limit`.
-- **Spec-driven**: generate the HTTP client/DTOs from `spec/cloud-portal-api-2.0.12.yaml`;
-  add the three help-page-only operations (getServices, updateEndpoints bulk,
-  staticfiles) by hand.
-- **Stack**: Python + the MCP Python SDK, or Node (could vendor `sapcc-portal-cli`'s
-  client). Recommendation: Python; the SDK offloads sync tools to threads and the
+- **Spec-driven**: the HTTP client follows `spec/cloud-portal-api-2.0.12.yaml`; the two
+  help-page-only operations (getServices, bulk updateEndpoints) are added by hand.
+- **Stack**: Python + the MCP Python SDK; the SDK offloads sync tools to threads and the
   packaging is a single `uv`-built image.
 - **Transport**: stdio + streamable HTTP so it can run in the same compose stack.
 
-## 6. Open questions to verify against a real subscription
-
-Answered by live runs against a subscription (October 2026):
+## 6. Portal behaviour observed against a real subscription
 
 - getServices lives at `/subscriptions/{code}/environments/{env}/services` (the help page
   path without `/subscriptions/` is wrong).
@@ -277,14 +264,6 @@ Answered by live runs against a subscription (October 2026):
   `DEPLOYMENT_INSIGHT.DATA_MIGRATION.NAME` and `DEPLOYMENT_INSIGHT.ROLLING_DEPLOYMENT.NAME`.
   The deployment DTO carries `createdTimestamp` and `deployedTimestamp`. The deployer of
   a technical-user deployment shows as the technical user's id plus its owner's S-user.
-
-Still open:
-
-1. Does putProperty apply configuration now, or is a UI apply still needed (KBA 3285271)?
-2. Does createDatarestore accept a prod backup into a staging target without a ticket?
-3. Is deployment cancellation enabled on the subscription (501 otherwise)?
-4. Secret expiry length on a freshly created technical user.
-5. Whether scaling needs `CUSTOMER_SYS_ADMIN` on the technical user.
 
 ## Sources
 
@@ -319,44 +298,10 @@ Still open:
 - Dynatrace token Q&A: https://community.sap.com/t5/crm-and-cx-q-a/how-to-generate-an-access-token-to-access-dynatrace-data-through-api/qaq-p/13967633
 - Existing MCP servers: https://github.com/Emenowicz/hybris-mcp , https://glama.ai/mcp/servers?query=sap%20commerce
 
-## 7. Decisions (2026-10-28)
+## 7. Decisions
 
-- Project name and folder: `ccv2-portal-mcp`. Remote repo to be added later.
-- Phase 1 = sections 4.1–4.3 (read tools, bounded waits, gated writes, pipeline helpers).
-  Phase 2 = maintenance-mode across endpoints, backup-before-deploy, certificate rotation.
 - Deliverable: Docker image + `docker-compose.yml` running streamable HTTP
-  (`MCP_TRANSPORT`, `MCP_PORT`), multi-subscription config
-  from a gitignored env/config file, audit log as JSONL on a small volume, no database.
-  Plus a stdio entry point via `uv run` / `uvx` for local development.
+  (`MCP_TRANSPORT`, `MCP_PORT`), multi-subscription config from a gitignored env/config
+  file, audit log as JSONL on a small volume, no database. Plus a stdio entry point via
+  `uv run` / `uvx` for local use.
 - Stack: Python + MCP Python SDK 2.x.
-
-## 8. Phase 3 (planned): local UI and database-backed config
-
-Step one of this, a read-only status page served by the MCP server (or by
-`ccv2-portal-mcp ui` under stdio), shipped in October 2026. The configuration stays in
-`.env` / JSON; the dynamic part below is still to come.
-
-Intended use is a personal, local tool: Claude Code on the developer's machine talking to
-the server, nothing shared or deployed. Under that model the configuration should not live
-in `.env` or JSON files but be managed through a small web UI and stored locally.
-
-- **Storage**: one SQLite file in the user's data directory for subscriptions,
-  per-environment permissions, client secrets and the audit log, created with owner-only
-  (0600) permissions. No OS keychain: developers are on macOS, Linux and Windows, and
-  keychain backends are unreliable on headless Linux and WSL. The protection is the same
-  as today's `.env` file (filesystem permissions), which is acceptable for a personal
-  local tool.
-- **Process model**: the MCP server (stdio or HTTP) only *reads* the database, re-reading it
-  when the file's modification time changes, so permission changes apply to the next tool
-  call without a restart. A separate `ccv2-portal-mcp ui` command serves the management
-  page on localhost against the same database. This keeps one-process-per-session stdio
-  working and avoids port conflicts.
-- **UI scope**: add/edit/remove a subscription (name, code, token URL, client id, secret,
-  resource), toggle permissions per environment, show token health (last success, last
-  auth failure), secret age with expiry warning, and the recent audit entries.
-- **Bootstrap**: on first start, an existing `.env` / `CCV2_CONFIG` is imported into the
-  database; the file loaders stay as an alternative input for headless runs.
-- **Not a rewrite**: tools read configuration through `Registry.configure` / `load_config`
-  only, so this is a new loader plus a reload hook.
-
-Deferred until the server has been validated against a real subscription.
