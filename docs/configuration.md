@@ -197,7 +197,10 @@ A `wait_*` call blocks for `WAIT_DEFAULT_SEC` by default. An agent that wants to
 a whole build or deployment passes `timeout_sec`, up to `WAIT_MAX_SEC` (one hour), and the
 server sends an MCP progress notification on every poll with the percentage, the status and
 the running stage. Clients reset their timeout on progress notifications, so the long call
-is within the protocol. The one limit the server cannot lift is the client's own per-call
+is within the protocol. How long to wait comes from the subscription itself: build and deployment results
+carry the durations of recent ones and a suggested `timeout_sec`, so a ten-minute
+storefront and a forty-minute suite each get their own number. The one limit the server
+cannot lift is the client's own per-call
 timeout: in Claude Code raise `MCP_TOOL_TIMEOUT` (milliseconds) if a long wait is cut off.
 
 ## What the API cannot do

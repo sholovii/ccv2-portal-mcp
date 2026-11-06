@@ -28,6 +28,7 @@ from .app import (
     tool,
 )
 from .client import PortalClient, PortalError
+from .history import describe, typical_build_duration, typical_deployment_duration
 from .config import (
     PERM_BACKUP_RESTORE,
     PERM_BUILD,
@@ -98,9 +99,12 @@ def ccv2portal_create_build(branch: str, name: str | None = None, subscription: 
     name = name or f"{re.sub(r'[^A-Za-z0-9._-]+', '-', branch)}-{datetime.now(timezone.utc):%Y%m%d-%H%M}"
     resp = client.create_build(branch=branch, name=name)
     code = resp.get("code")
+    wait_max = registry.settings.wait_max_sec
+    typical = typical_build_duration(client, wait_max)
     return WriteResult(
         subscription=client.sub.name, action="create_build", code=code, executed=True, response=resp,
-        hint=f"Build {code} scheduled from {branch!r}. Poll with ccv2portal_wait_for_build (builds take 20-60 min).",
+        hint=f"Build {code} scheduled from {branch!r}. " + describe(typical, kind="build", wait_tool="ccv2portal_wait_for_build", wait_max_sec=wait_max),
+        typical_duration=typical,
     )
 
 
@@ -179,11 +183,15 @@ def ccv2portal_create_deployment(
 
     resp = client.create_deployment(build_code=build_code, environment=environment, database_update_mode=db_mode, strategy=strat)
     code = resp.get("code")
+    wait_max = registry.settings.wait_max_sec
+    typical = typical_deployment_duration(client, wait_max, environment)
     return WriteResult(
         subscription=client.sub.name, action="create_deployment", environment=environment, code=code, executed=True,
         response=resp,
-        hint=f"Deployment {code} of build {build_code} ({build.branch}) to {environment} started ({db_mode}/{strat}).{backup_note} Poll with ccv2portal_wait_for_deployment."
+        hint=f"Deployment {code} of build {build_code} ({build.branch}) to {environment} started ({db_mode}/{strat}).{backup_note} "
+        + describe(typical, kind="deployment", wait_tool="ccv2portal_wait_for_deployment", wait_max_sec=wait_max)
         + (" GREEN: accept or reject afterwards with ccv2portal_blue_green_decision." if strat == "GREEN" else ""),
+        typical_duration=typical,
     )
 
 

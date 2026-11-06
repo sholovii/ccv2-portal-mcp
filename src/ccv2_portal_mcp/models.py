@@ -163,6 +163,7 @@ class WaitResult(BaseModel):
     succeeded: bool | None = None
     waited_sec: float
     hint: str
+    typical_duration: dict | None = None  # from this subscription's history, when not done
 
 
 EnvironmentDetail.model_rebuild()
@@ -271,6 +272,7 @@ class WriteResult(BaseModel):
     executed: bool
     response: dict | list | None = None
     hint: str = ""
+    typical_duration: dict | None = None  # builds / deployments: how long recent ones took
 
 
 class Check(BaseModel):

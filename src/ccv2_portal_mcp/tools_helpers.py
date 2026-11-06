@@ -29,6 +29,7 @@ from .app import (
 )
 from .audit import SECRET_KEY
 from .client import PortalClient, PortalError
+from .history import describe, typical_build_duration, typical_deployment_duration
 from .config import PERM_BACKUP_RESTORE, PERM_DEPLOY, PERM_READ
 from .models import (
     Check,
@@ -93,9 +94,14 @@ def _wait(kind: str, code: str, fetch, terminal: set[str], timeout_sec: int | No
                     shown = "queued (the portal reports UNKNOWN until the build starts, typically within 5-10 min)"
                 hint = _again_hint(shown, elapsed, timeout)
                 succeeded = None
+            typical = None
+            if not done:
+                wait_max = registry.settings.wait_max_sec
+                typical = typical_build_duration(client, wait_max) if kind == "build" else typical_deployment_duration(client, wait_max)
+                hint += " " + describe(typical, kind=kind, wait_tool=f"ccv2portal_wait_for_{kind}", wait_max_sec=wait_max)
             return WaitResult(
                 subscription=client.sub.name, kind=kind, code=code, status=status, percentage=pct,
-                done=done, succeeded=succeeded, waited_sec=round(elapsed, 1), hint=hint,
+                done=done, succeeded=succeeded, waited_sec=round(elapsed, 1), hint=hint, typical_duration=typical,
             )
         time.sleep(poll)
 

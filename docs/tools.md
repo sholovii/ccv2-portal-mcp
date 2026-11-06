@@ -52,6 +52,11 @@ permission in the table and, where noted, `confirm=true`.
 
 Notes on behaviour:
 
+- `create_build`, `create_deployment` and a `wait_*` call that times out carry a
+  `typical_duration` field computed from this subscription's last successful builds or
+  deployments (portal timestamps): the observed range and a suggested `timeout_sec` for a
+  single wait call. Without history the hint says so and names the ceiling.
+
 - `create_deployment` refuses a build whose status is not `SUCCESS`, an environment with a
   deployment already running, and a mode or strategy the portal does not list as allowed.
   With `backup_first=true` it takes a QUICK database backup first and deploys only once the
