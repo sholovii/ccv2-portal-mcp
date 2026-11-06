@@ -81,7 +81,7 @@ Notes on behaviour:
 
 | Tool | What it does |
 |---|---|
-| `build_and_deploy` | runs build → (quick backup) → deploy → wait as one server-side pipeline and returns a pipeline id at once. Validates everything first: `build` and `deploy` on the environment (`backup_restore` with `backup_first`), modes and strategies, no running deployment, and `confirm=true` for production, `INITIALIZE` or `RECREATE`. A failed build ends the pipeline with the failure diagnosis attached |
+| `build_and_deploy` | runs build → (quick backup) → deploy → wait as one server-side pipeline and returns a pipeline id at once. Validates everything first: `build` and `deploy` on the environment (`backup_restore` with `backup_first`), modes and strategies, and `confirm=true` for production, `INITIALIZE` or `RECREATE`. A deployment already running on the target when it is time to deploy is waited for (step `wait_environment`), not a reason to fail. A failed build ends the pipeline with the failure diagnosis attached |
 | `wait_for_pipeline` | blocks until the pipeline finishes or `timeout_sec` elapses (default `WAIT_DEFAULT_SEC`, up to one hour), with progress notifications |
 | `get_pipeline` / `list_pipelines` | state of one pipeline (status, progress, current step, build, backup and deployment codes) or of the recent ones |
 | `cancel_pipeline` | stops a pipeline before its next step; a build or deployment already started in the portal keeps running |

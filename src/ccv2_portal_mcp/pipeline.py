@@ -20,7 +20,6 @@ from typing import Any, Callable
 
 from .app import (
     BUILD_TERMINAL,
-    DEPLOYMENT_ACTIVE,
     DEPLOYMENT_TERMINAL,
     DESTRUCTIVE,
     READ_ONLY,
@@ -42,7 +41,7 @@ from .models import PipelineList, PipelineState, PipelineStep
 
 log = logging.getLogger(__name__)
 
-STEP_NAMES = ("build", "wait_build", "backup", "wait_backup", "deploy", "wait_deployment")
+STEP_NAMES = ("build", "wait_build", "backup", "wait_backup", "wait_environment", "deploy", "wait_deployment")
 TERMINAL = {"succeeded", "failed", "cancelled"}
 HISTORY = 50
 
@@ -212,6 +211,21 @@ def _poll(p: Pipeline, fetch: Callable[[], dict], is_done: Callable[[dict], bool
         time.sleep(max(2, s.wait_poll_sec))
 
 
+def _wait_environment_free(p: Pipeline, client, running: dict) -> None:
+    """Poll until no deployment is active on the target; a newly started one is waited for too."""
+    s = registry.settings
+    start = time.monotonic()
+    while running:
+        code = running.get("code")
+        _poll(
+            p, lambda: client.deployment_progress(code), lambda r: status_of(r) in DEPLOYMENT_TERMINAL,
+            "wait_environment", p.progress, p.progress, f"deployment {code} already running on {p.environment}",
+        )
+        running = active_deployment(client, p.environment)
+        if running and time.monotonic() - start > s.wait_max_sec:
+            raise PortalError(f"{p.environment} still busy with deployment {running.get('code')} after {s.wait_max_sec}s")
+
+
 class _Cancelled(Exception):
     def __init__(self, step: str) -> None:
         super().__init__(step)
@@ -261,7 +275,18 @@ def run_pipeline(p: Pipeline) -> None:
                 raise PortalError(f"pre-deploy backup {p.backup_code} ended as {raw.get('status')}; deployment not started")
             p.end("wait_backup", code=p.backup_code, detail=raw.get("status"))
 
-        # 4. deploy
+        # 4. let a deployment already running on the target finish (another session or a
+        #    colleague may have started one while the build ran)
+        step = "wait_environment"
+        running = active_deployment(client, p.environment)
+        if running:
+            p.begin("wait_environment", f"deployment {running.get('code')} is already running on {p.environment}; waiting for it")
+            _wait_environment_free(p, client, running)
+            p.end("wait_environment", code=running.get("code"), detail="finished")
+        else:
+            p.step("wait_environment").status = "skipped"
+
+        # 5. deploy
         step = "deploy"
         if p.cancel_requested:
             raise _Cancelled("deploy")
@@ -273,7 +298,7 @@ def run_pipeline(p: Pipeline) -> None:
         p.deployment_code = res.code
         p.end("deploy", code=res.code)
 
-        # 5. wait for the deployment
+        # 6. wait for the deployment
         step = "wait_deployment"
         p.begin("wait_deployment", f"waiting for deployment {p.deployment_code}")
         raw = _poll(p, lambda: client.deployment_progress(p.deployment_code), lambda r: status_of(r) in DEPLOYMENT_TERMINAL, "wait_deployment", 60, 100, f"deployment {p.deployment_code}")
@@ -300,7 +325,8 @@ def run_pipeline(p: Pipeline) -> None:
     description=(
         "Run build -> (optional quick backup) -> deploy -> wait as one server-side pipeline and return a pipeline id "
         "immediately. Validates permissions, modes and confirmation up front; needs 'build' and 'deploy' on the environment "
-        "(and 'backup_restore' with backup_first), confirm=true for production, INITIALIZE or RECREATE. Watch it with "
+        "(and 'backup_restore' with backup_first), confirm=true for production, INITIALIZE or RECREATE. A deployment already "
+        "running on the target is waited for, not a reason to refuse. Watch it with "
         "ccv2portal_wait_for_pipeline (progress notifications) or ccv2portal_get_pipeline. Each step is audited like a direct call."
     ),
     annotations=DESTRUCTIVE,
@@ -332,9 +358,6 @@ def ccv2portal_build_and_deploy(
         require(client.sub, environment, PERM_BACKUP_RESTORE)
     env_raw = env_or_fail(client, environment)
     prod = is_production(env_raw, environment)
-    running = active_deployment(client, environment)
-    if running and status_of(running) in DEPLOYMENT_ACTIVE:
-        raise PortalError(f"environment {environment} already has deployment {running.get('code')} in status {status_of(running)}")
     db_allowed, st_allowed = allowed_modes(client, environment)
     if db_allowed is not None and db_mode not in db_allowed:
         raise PortalError(f"portal does not allow database_update_mode {db_mode} on {environment}; allowed: {sorted(db_allowed)}")

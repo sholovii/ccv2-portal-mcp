@@ -60,7 +60,10 @@ def test_pipeline_builds_backs_up_and_deploys(configured, client):
     state = _finished(started.id)
     assert state.status == "succeeded" and state.progress == 100
     assert (state.build_code, state.backup_code, state.deployment_code) == ("b9", "bk9", "dep9")
-    assert [s.status for s in state.steps] == ["done"] * 6
+    assert {s.name: s.status for s in state.steps} == {
+        "build": "done", "wait_build": "done", "backup": "done", "wait_backup": "done",
+        "wait_environment": "skipped", "deploy": "done", "wait_deployment": "done",
+    }
     assert posted["builds"][0]["name"] == "nightly" and posted["deployments"][0]["databaseUpdateMode"] == "UPDATE"
     assert posted["backups"][0]["databackupType"] == "QUICK"
     assert "deployed to d1" in state.hint
@@ -148,3 +151,26 @@ def test_status_page_lists_pipelines(configured):
     _finished(pid)
     doc = StatusCollector(server.registry, served_by="ui").collect(live=False)
     assert doc["pipelines"][0]["id"] == pid and doc["pipelines"][0]["status"] == "succeeded"
+
+
+def test_pipeline_waits_for_a_deployment_already_running_on_the_target(configured):
+    posted = _happy_portal(configured)
+    # the target is busy with dep0 for the first three checks, then free
+    checks = {"n": 0}
+
+    def deployments(request):
+        checks["n"] += 1
+        busy = checks["n"] <= 3
+        items = [{"code": "dep0", "environmentCode": "d1", "buildCode": "b0", "status": "DEPLOYING" if busy else "DEPLOYED"}]
+        if request.url.params.get("status") == "DEPLOYED" and busy:
+            items = []
+        return 200, {"value": items, "count": len(items)}
+
+    configured.route("GET", f"/v2/subscriptions/{SUB}/deployments", handler=deployments)
+    configured.route("GET", f"/v2/subscriptions/{SUB}/deployments/dep0/progress", handler=_progression([{"deploymentStatus": "DEPLOYING", "percentage": 80}, {"deploymentStatus": "DEPLOYED", "percentage": 100}]))
+    started = server.ccv2portal_build_and_deploy("develop", "d1")  # not refused although d1 is busy
+    state = _finished(started.id)
+    assert state.status == "succeeded", state.error
+    by = {s.name: s for s in state.steps}
+    assert by["wait_environment"].status == "done" and by["wait_environment"].code == "dep0"
+    assert posted["deployments"][0]["buildCode"] == "b9"
