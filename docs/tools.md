@@ -27,7 +27,7 @@ permission in the table and, where noted, `confirm=true`.
 | `list_backups` / `list_restores` | data backups and restores of an environment with status flags |
 | `get_scaling_options` | current scaling and the allowed values |
 | `list_scheduled_activities` | hibernation, wake-up and DR package activities |
-| `wait_for_build` / `wait_for_deployment` / `wait_for_backup` | poll until a terminal state or the bounded timeout (`WAIT_MAX_SEC`, default 60 s). Return `done=false` with a hint to call again |
+| `wait_for_build` / `wait_for_deployment` / `wait_for_backup` | poll until a terminal state. Block `WAIT_DEFAULT_SEC` (60 s) unless `timeout_sec` is given, up to `WAIT_MAX_SEC` (one hour), sending a progress notification on every poll. Return `done=false` with a hint when the timeout elapses first |
 
 ## Write
 

@@ -58,8 +58,9 @@ Everything goes through SAP's official Cloud Portal API. Nothing is scraped from
   or another environment (data refresh), cancel a restore.
 - **Scaling and hibernation**: change scaling within the portal's allowed values; schedule,
   reschedule and cancel hibernation, wake-up and DR activities.
-- **Bounded waits**: `wait_for_build`, `wait_for_deployment` and `wait_for_backup` poll
-  for at most a minute per call and tell the assistant to call again.
+- **Waits with progress**: `wait_for_build`, `wait_for_deployment` and `wait_for_backup`
+  block for a minute by default or, on request, for up to an hour, streaming progress
+  notifications to the client so one call covers a whole build.
 
 ### Stay safe
 

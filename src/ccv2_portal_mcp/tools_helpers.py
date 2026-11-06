@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 from . import buildlog
 from .app import (
+    report_progress,
     BUILD_TERMINAL,
     DEPLOYMENT_TERMINAL,
     DESTRUCTIVE,
@@ -49,11 +50,31 @@ log = logging.getLogger(__name__)
 
 # --------------------------------------------------------------------- waits
 
+def _wait_window(timeout_sec: int | None, poll_sec: int | None) -> tuple[int, int]:
+    s = registry.settings
+    timeout = min(max(1, timeout_sec or s.wait_default_sec), s.wait_max_sec)
+    return timeout, max(2, poll_sec or s.wait_poll_sec)
+
+
+def _again_hint(what: str, elapsed: float, timeout: int) -> str:
+    s = registry.settings
+    hint = f"Still {what} after {elapsed:.0f}s of the {timeout}s requested; call again to keep waiting."
+    if timeout < s.wait_max_sec:
+        hint += f" One call can wait up to timeout_sec={s.wait_max_sec}; progress is reported while it runs."
+    return hint
+
+
+def _stage_note(raw: dict) -> str:
+    """Name of the running stage, for progress messages (deployments only)."""
+    for st in raw.get("stages") or []:
+        if (st.get("status") or "").upper() == "RUNNING":
+            return f" stage {st.get('name')}"
+    return ""
+
+
 def _wait(kind: str, code: str, fetch, terminal: set[str], timeout_sec: int | None, poll_sec: int | None, subscription: str | None) -> WaitResult:
     client = registry.client(subscription)
-    s = registry.settings
-    timeout = min(max(1, timeout_sec or s.wait_max_sec), s.wait_max_sec)
-    poll = max(2, poll_sec or s.wait_poll_sec)
+    timeout, poll = _wait_window(timeout_sec, poll_sec)
     start = time.monotonic()
     while True:
         raw = fetch(client, code)
@@ -61,6 +82,7 @@ def _wait(kind: str, code: str, fetch, terminal: set[str], timeout_sec: int | No
         pct = raw.get("percentage")
         done = status in terminal
         elapsed = time.monotonic() - start
+        report_progress(pct or 0, 100, f"{kind} {code}: {status or 'queued'} {pct if pct is not None else '?'}%{_stage_note(raw)} ({elapsed:.0f}s)")
         if done or elapsed + poll > timeout:
             if done:
                 hint = f"{kind} finished with {status}."
@@ -69,7 +91,7 @@ def _wait(kind: str, code: str, fetch, terminal: set[str], timeout_sec: int | No
                 shown = status or "running"
                 if kind == "build" and status in {None, "UNKNOWN", "SCHEDULED"}:
                     shown = "queued (the portal reports UNKNOWN until the build starts, typically within 5-10 min)"
-                hint = f"Still {shown} after {elapsed:.0f}s; call again to keep waiting (each call waits at most {s.wait_max_sec}s)."
+                hint = _again_hint(shown, elapsed, timeout)
                 succeeded = None
             return WaitResult(
                 subscription=client.sub.name, kind=kind, code=code, status=status, percentage=pct,
@@ -78,10 +100,17 @@ def _wait(kind: str, code: str, fetch, terminal: set[str], timeout_sec: int | No
         time.sleep(poll)
 
 
+WAIT_DOC = (
+    " Blocks WAIT_DEFAULT_SEC (60s) unless timeout_sec is given, up to WAIT_MAX_SEC (3600s); one long call "
+    "with progress notifications is cheaper than repeated short ones. Returns done=false with a hint when the timeout elapses first."
+)
+
+
 @tool(
     name="ccv2portal_wait_for_build",
-    description="Poll a build until it reaches a terminal state or the bounded timeout elapses (never longer than WAIT_MAX_SEC, default 60s). Returns done=false with a hint to call again while the build is still running.",
+    description="Poll a build until it reaches a terminal state (SUCCESS, FAIL, DELETED)." + WAIT_DOC,
     annotations=READ_ONLY,
+    progress=True,
 )
 def ccv2portal_wait_for_build(build_code: str, timeout_sec: int | None = None, poll_sec: int | None = None, subscription: str | None = None) -> WaitResult:
     return _wait("build", build_code, lambda c, code: c.build_progress(code), BUILD_TERMINAL, timeout_sec, poll_sec, subscription)
@@ -89,8 +118,9 @@ def ccv2portal_wait_for_build(build_code: str, timeout_sec: int | None = None, p
 
 @tool(
     name="ccv2portal_wait_for_deployment",
-    description="Poll a deployment until it reaches a terminal state or the bounded timeout elapses (never longer than WAIT_MAX_SEC, default 60s). Returns done=false with a hint to call again while the deployment is still running.",
+    description="Poll a deployment until it reaches a terminal state (DEPLOYED, FAIL, UNDEPLOYED)." + WAIT_DOC,
     annotations=READ_ONLY,
+    progress=True,
 )
 def ccv2portal_wait_for_deployment(deployment_code: str, timeout_sec: int | None = None, poll_sec: int | None = None, subscription: str | None = None) -> WaitResult:
     return _wait("deployment", deployment_code, lambda c, code: c.deployment_progress(code), DEPLOYMENT_TERMINAL, timeout_sec, poll_sec, subscription)
@@ -98,26 +128,26 @@ def ccv2portal_wait_for_deployment(deployment_code: str, timeout_sec: int | None
 
 @tool(
     name="ccv2portal_wait_for_backup",
-    description="Poll a data backup until it is restorable, failed, or the bounded timeout elapses (never longer than WAIT_MAX_SEC per call). Returns done=false with a hint to call again while it is still running.",
+    description="Poll a data backup until it is restorable or failed." + WAIT_DOC,
     annotations=READ_ONLY,
+    progress=True,
 )
 def ccv2portal_wait_for_backup(environment: str, backup_code: str, timeout_sec: int | None = None, poll_sec: int | None = None, subscription: str | None = None) -> WaitResult:
     client = registry.client(subscription)
     require(client.sub, environment, PERM_READ)
-    s = registry.settings
-    timeout = min(max(1, timeout_sec or s.wait_max_sec), s.wait_max_sec)
-    poll = max(2, poll_sec or s.wait_poll_sec)
+    timeout, poll = _wait_window(timeout_sec, poll_sec)
     start = time.monotonic()
     while True:
         raw = client.backup(environment, backup_code)
         state = backup_state(raw)
         elapsed = time.monotonic() - start
+        report_progress(elapsed, timeout, f"backup {backup_code}: {raw.get('status')} ({elapsed:.0f}s)")
         if state != "running" or elapsed + poll > timeout:
             done = state != "running"
             return WaitResult(
                 subscription=client.sub.name, kind="backup", code=backup_code, status=raw.get("status"), done=done,
                 succeeded=(state == "done") if done else None, waited_sec=round(elapsed, 1),
-                hint=f"backup {state}." if done else f"Still running after {elapsed:.0f}s; call again (each call waits at most {s.wait_max_sec}s).",
+                hint=f"backup {state}." if done else _again_hint("running", elapsed, timeout),
             )
         time.sleep(poll)
 

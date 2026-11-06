@@ -191,6 +191,7 @@ class StatusCollector:
             "config_source": config_source(s),
             "settings": {
                 "http_timeout_sec": s.http_timeout_sec,
+                "wait_default_sec": s.wait_default_sec,
                 "wait_max_sec": s.wait_max_sec,
                 "wait_poll_sec": s.wait_poll_sec,
                 "build_log_max_lines": s.build_log_max_lines,

@@ -194,8 +194,10 @@ class Settings(BaseSettings):
     token_early_refresh_sec: int = 30
     retry_429_max: int = 3
 
-    # Bounded waits: a wait_* tool never blocks longer than this per call.
-    wait_max_sec: int = 60
+    # Waits: a wait_* call blocks WAIT_DEFAULT_SEC unless the agent passes timeout_sec, which
+    # is capped at WAIT_MAX_SEC. Progress notifications go to the client on every poll.
+    wait_default_sec: int = 60
+    wait_max_sec: int = 3600
     wait_poll_sec: int = 15
 
     # Build log handling: the zip is read fully but the returned text is capped.

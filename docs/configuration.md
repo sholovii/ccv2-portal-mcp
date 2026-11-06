@@ -115,8 +115,9 @@ deletions and scaling changes require `confirm=true` on the call.
 | `MCP_TRANSPORT` | `stdio` | `stdio` for local use, `streamable-http` for the service (the container forces it) |
 | `MCP_HOST` / `MCP_PORT` | `0.0.0.0` / `8849` | HTTP bind address |
 | `HTTP_TIMEOUT_SEC` | `30` | per-request timeout against the portal |
-| `WAIT_MAX_SEC` | `60` | upper bound of any `wait_*` call and of `backup_first` |
-| `WAIT_POLL_SEC` | `15` | polling interval inside a wait |
+| `WAIT_DEFAULT_SEC` | `60` | how long a `wait_*` call blocks when the agent passes no `timeout_sec`; also the window of `backup_first` |
+| `WAIT_MAX_SEC` | `3600` | ceiling for an explicit `timeout_sec`; the HTTP session idle timeout is raised above it automatically |
+| `WAIT_POLL_SEC` | `15` | polling interval inside a wait; a progress notification goes to the client on every poll |
 | `BUILD_LOG_MAX_LINES` | `400` | lines returned by `get_build_log` at most |
 | `RETRY_429_MAX` | `3` | retries on HTTP 429 |
 | `AUDIT_LOG_PATH` | empty | JSONL audit file; empty means stderr only |
@@ -188,7 +189,16 @@ The page only displays configuration; `.env` or the JSON file remain the source 
   is not enabled for the subscription. Other errors carry the portal's RFC 7807 title and
   detail plus a plain-language hint.
 - The portal has no webhooks, no build cancellation and no rollback primitive. Waits are
-  bounded polling; rollback is a redeploy of the previous build.
+  polling; rollback is a redeploy of the previous build.
+
+## Long waits
+
+A `wait_*` call blocks for `WAIT_DEFAULT_SEC` by default. An agent that wants to sit through
+a whole build or deployment passes `timeout_sec`, up to `WAIT_MAX_SEC` (one hour), and the
+server sends an MCP progress notification on every poll with the percentage, the status and
+the running stage. Clients reset their timeout on progress notifications, so the long call
+is within the protocol. The one limit the server cannot lift is the client's own per-call
+timeout: in Claude Code raise `MCP_TOOL_TIMEOUT` (milliseconds) if a long wait is cut off.
 
 ## What the API cannot do
 

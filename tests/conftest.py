@@ -97,7 +97,7 @@ def client(portal) -> PortalClient:
 @pytest.fixture
 def configured(portal, client, monkeypatch):
     """Wire the server registry to the fake portal."""
-    settings = Settings(_env_file=None, wait_max_sec=5, wait_poll_sec=2, build_log_max_lines=50)
+    settings = Settings(_env_file=None, wait_default_sec=5, wait_max_sec=5, wait_poll_sec=2, build_log_max_lines=50)
     cfg = AppConfig(subscriptions={"acme": client.sub}, default_subscription="acme")
     server.registry.configure(settings, cfg, Audit(None))
     server.registry.set_client("acme", client)

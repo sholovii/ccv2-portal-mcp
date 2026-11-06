@@ -3,14 +3,18 @@ guards, the audit hook and small normalisers used by every tool module."""
 
 from __future__ import annotations
 
+import contextvars
 import functools
+import inspect
+import typing
 import inspect
 import logging
 import threading
 import time
 from typing import Any, Callable
 
-from mcp.server.mcpserver import MCPServer
+import anyio
+from mcp.server.mcpserver import Context, MCPServer
 from mcp.types import ToolAnnotations
 
 from . import __version__
@@ -169,18 +173,72 @@ def env_or_fail(client: PortalClient, env: str) -> dict:
 
 # --------------------------------------------------------------------- tool
 
-def tool(**kwargs) -> Callable:
-    """Register a sync function as a tool; domain errors become readable tool errors."""
+DOMAIN_ERRORS = (PortalError, AuthError, ConfigError, PermissionDenied, ConfirmationRequired)
+
+# Progress reporter for the current tool call: (progress, total, message) -> None. Set by the
+# async tool wrapper for tools registered with progress=True; a no-op everywhere else, so the
+# same sync functions can be called from tests, scripts and pipelines.
+PROGRESS: contextvars.ContextVar[Callable[[float, float | None, str | None], None] | None] = contextvars.ContextVar("progress", default=None)
+
+
+def report_progress(progress: float, total: float | None = None, message: str | None = None) -> None:
+    fn = PROGRESS.get()
+    if fn is None:
+        return
+    try:
+        fn(progress, total, message)
+    except Exception as exc:  # a client that cannot take progress must not break the wait
+        log.debug("progress notification failed: %s", exc)
+
+
+def tool(*, progress: bool = False, **kwargs) -> Callable:
+    """Register a sync function as a tool; domain errors become readable tool errors.
+
+    progress=True registers an async wrapper that takes the MCP request context, runs the
+    sync function in a worker thread and forwards report_progress() calls to the client as
+    MCP progress notifications. The Python function itself stays sync.
+    """
 
     def decorate(fn):
+        if not progress:
+            @functools.wraps(fn)
+            def run(*args, **kw):
+                try:
+                    return fn(*args, **kw)
+                except DOMAIN_ERRORS as exc:
+                    raise RuntimeError(str(exc)) from exc
+
+            mcp.tool(**kwargs)(run)
+            return fn
+
         @functools.wraps(fn)
-        def run(*args, **kw):
+        async def run_async(*args, ctx: Context, **kw):
+            def reporter(p: float, total: float | None, message: str | None) -> None:
+                anyio.from_thread.run(ctx.report_progress, p, total, message)
+
+            def call():
+                token = PROGRESS.set(reporter)
+                try:
+                    return fn(*args, **kw)
+                finally:
+                    PROGRESS.reset(token)
+
             try:
-                return fn(*args, **kw)
-            except (PortalError, AuthError, ConfigError, PermissionDenied, ConfirmationRequired) as exc:
+                return await anyio.to_thread.run_sync(call)
+            except DOMAIN_ERRORS as exc:
                 raise RuntimeError(str(exc)) from exc
 
-        mcp.tool(**kwargs)(run)
+        # Resolve the string annotations (from __future__ annotations) to real types here, so the
+        # SDK can build the input and output schemas from the wrapper without forward references.
+        hints = typing.get_type_hints(fn)
+        sig = inspect.signature(fn)
+        params = [p.replace(annotation=hints.get(p.name, p.annotation)) for p in sig.parameters.values()]
+        run_async.__signature__ = sig.replace(
+            parameters=[*params, inspect.Parameter("ctx", inspect.Parameter.KEYWORD_ONLY, annotation=Context)],
+            return_annotation=hints.get("return", sig.return_annotation),
+        )
+        run_async.__annotations__ = {**hints, "ctx": Context}
+        mcp.tool(**kwargs)(run_async)
         return fn
 
     return decorate

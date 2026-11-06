@@ -51,7 +51,10 @@ def main(argv: list[str] | None = None) -> None:
 
         register_on_mcp()
         log.info("status page on http://%s:%d/", s.mcp_host, s.mcp_port)
-        mcp.run(transport="streamable-http", host=s.mcp_host, port=s.mcp_port)
+        mcp.run(
+            transport="streamable-http", host=s.mcp_host, port=s.mcp_port,
+            session_idle_timeout=max(1800, s.wait_max_sec + 300),  # a long wait must not expire the session
+        )
 
 
 if __name__ == "__main__":

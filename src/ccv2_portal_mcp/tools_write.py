@@ -193,7 +193,7 @@ def _wait_backup(client: PortalClient, env: str, code: str) -> str:
     start = time.monotonic()
     while True:
         state = backup_state(client.backup(env, code))
-        if state != "running" or time.monotonic() - start + s.wait_poll_sec > s.wait_max_sec:
+        if state != "running" or time.monotonic() - start + s.wait_poll_sec > s.wait_default_sec:
             return state
         time.sleep(max(2, s.wait_poll_sec))
 
