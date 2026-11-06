@@ -15,6 +15,7 @@ from typing import Any, Callable
 
 import anyio
 from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import __version__
@@ -194,6 +195,9 @@ def report_progress(progress: float, total: float | None = None, message: str | 
 def tool(*, progress: bool = False, **kwargs) -> Callable:
     """Register a sync function as a tool; domain errors become readable tool errors.
 
+    Domain errors are raised as ToolError, the one exception type whose message the SDK passes
+    to the client; anything else reaches the agent only as "Error executing tool X".
+
     progress=True registers an async wrapper that takes the MCP request context, runs the
     sync function in a worker thread and forwards report_progress() calls to the client as
     MCP progress notifications. The Python function itself stays sync.
@@ -206,7 +210,7 @@ def tool(*, progress: bool = False, **kwargs) -> Callable:
                 try:
                     return fn(*args, **kw)
                 except DOMAIN_ERRORS as exc:
-                    raise RuntimeError(str(exc)) from exc
+                    raise ToolError(str(exc)) from exc
 
             mcp.tool(**kwargs)(run)
             return fn
@@ -226,7 +230,7 @@ def tool(*, progress: bool = False, **kwargs) -> Callable:
             try:
                 return await anyio.to_thread.run_sync(call)
             except DOMAIN_ERRORS as exc:
-                raise RuntimeError(str(exc)) from exc
+                raise ToolError(str(exc)) from exc
 
         # Resolve the string annotations (from __future__ annotations) to real types here, so the
         # SDK can build the input and output schemas from the wrapper without forward references.

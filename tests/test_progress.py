@@ -81,3 +81,15 @@ def test_timeout_is_clamped_to_the_ceiling_and_hint_mentions_it(configured, clie
     assert "of the 4s requested" in out.hint
     out = server.ccv2portal_wait_for_build("b1", poll_sec=2)
     assert "timeout_sec=4" in out.hint  # the default window is shorter than the ceiling, so the hint says how to wait longer
+
+
+@pytest.mark.anyio
+async def test_refusals_reach_the_client_with_their_reason(configured):
+    """Through a real MCP session: the SDK hides the text of anything but ToolError."""
+    from mcp.client.client import Client
+
+    async with Client(server.mcp) as c:
+        sync = await c.call_tool("ccv2portal_create_build", {"branch": "develop", "subscription": "nope"})
+        assert sync.is_error and "unknown subscription 'nope'" in sync.content[0].text
+        waited = await c.call_tool("ccv2portal_wait_for_build", {"build_code": "b1", "subscription": "nope"})
+        assert waited.is_error and "unknown subscription 'nope'" in waited.content[0].text
