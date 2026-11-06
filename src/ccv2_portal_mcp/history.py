@@ -60,9 +60,13 @@ def typical_build_duration(client: PortalClient, wait_max_sec: int) -> dict[str,
 
 
 def typical_deployment_duration(client: PortalClient, wait_max_sec: int, environment: str | None = None) -> dict[str, Any] | None:
-    """From the last DEPLOYED deployments (created -> deployed); None without history."""
+    """From recent deployments that reached DEPLOYED (created -> deployed); None without history.
+
+    The portal marks superseded deployments UNDEPLOYED, so no status filter: any deployment with
+    a deployedTimestamp counts, which keeps more than the single live one as a sample.
+    """
     try:
-        deployments = client.deployments(environment=environment, status="DEPLOYED", limit=SAMPLES)
+        deployments = client.deployments(environment=environment, limit=3 * SAMPLES)
     except (PortalError, AuthError):
         return None
     durations = []
