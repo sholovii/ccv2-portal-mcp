@@ -159,6 +159,20 @@ PAGE = r"""<!doctype html>
     </section>`;
   }
 
+  function renderPipelines(items) {
+    if (!items || !items.length) return "";
+    const rows = items.map((p) => {
+      const cls = p.status === "running" ? "info" : p.status === "succeeded" ? "ok" : p.status === "failed" ? "bad" : "muted";
+      const steps = p.steps.map((s) => `<span class="chip ${s.status === "skipped" ? "off" : ""}" title="${esc(s.status)}${s.error ? ": " + esc(s.error) : ""}">${esc(s.name)} ${s.status === "done" ? "✓" : s.status === "running" ? "…" : s.status === "failed" ? "✗" : s.status === "cancelled" ? "⊘" : ""}</span>`).join("");
+      const codes = [p.build_code && `build <code>${esc(p.build_code)}</code>`, p.backup_code && `backup <code>${esc(p.backup_code)}</code>`, p.deployment_code && `deployment <code>${esc(p.deployment_code)}</code>`].filter(Boolean).join(" · ");
+      return `<tr><td><code>${esc(p.id)}</code><br><span class="small">${esc(fmtTs(p.created_at))}</span></td>
+        <td>${esc(p.subscription)} / <b>${esc(p.environment)}</b><br><span class="small">${esc(p.branch)} · ${esc(p.database_update_mode)}/${esc(p.strategy)}${p.backup_first ? " · backup first" : ""}</span></td>
+        <td>${dot(cls)}<span class="${cls}">${esc(p.status)}</span> ${p.progress}%<br><span class="small">${esc(p.message)}</span>${codes ? `<br><span class="small">${codes}</span>` : ""}</td>
+        <td>${steps}</td></tr>`;
+    }).join("");
+    return `<section><h2>Pipelines</h2><table><tr><th>pipeline</th><th>target</th><th>state</th><th>steps</th></tr>${rows}</table></section>`;
+  }
+
   function renderAudit(a) {
     const rows = a.entries.map((e) => e.raw ? `<tr><td colspan="5"><code>${esc(e.raw)}</code></td></tr>` : `<tr>
       <td class="small">${esc(fmtTs(e.ts))}</td><td>${esc(e.subscription)}</td><td><code>${esc((e.tool || "").replace(/^ccv2portal_/, ""))}</code></td>
@@ -179,6 +193,7 @@ PAGE = r"""<!doctype html>
     let html = renderServer(d);
     if (d.config_error) html += `<section><h2>Configuration</h2><p class="err">${esc(d.config_error)}</p></section>`;
     html += d.subscriptions.map((s) => renderSubscription(s, all)).join("");
+    html += renderPipelines(d.pipelines);
     html += renderAudit(d.audit);
     $("#main").innerHTML = html;
   }

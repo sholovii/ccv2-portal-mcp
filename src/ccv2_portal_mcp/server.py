@@ -11,6 +11,7 @@ from .config import ConfigError
 from .tools_read import *  # noqa: F401,F403
 from .tools_write import *  # noqa: F401,F403
 from .tools_helpers import *  # noqa: F401,F403
+from .pipeline import *  # noqa: F401,F403
 
 log = logging.getLogger("ccv2_portal_mcp")
 

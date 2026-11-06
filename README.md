@@ -58,6 +58,9 @@ Everything goes through SAP's official Cloud Portal API. Nothing is scraped from
   or another environment (data refresh), cancel a restore.
 - **Scaling and hibernation**: change scaling within the portal's allowed values; schedule,
   reschedule and cancel hibernation, wake-up and DR activities.
+- **Build and deploy as one pipeline**: one call builds a branch, optionally takes a quick
+  backup, deploys and waits, all inside the server; the assistant watches a pipeline id
+  instead of scripting a poll loop. Failed builds come back already diagnosed.
 - **Waits with progress**: `wait_for_build`, `wait_for_deployment` and `wait_for_backup`
   block for a minute by default or, on request, for up to an hour, streaming progress
   notifications to the client so one call covers a whole build.

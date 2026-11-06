@@ -374,3 +374,43 @@ class TimelineResult(BaseModel):
     subscription: str
     since: str
     events: list[TimelineEvent]
+
+
+class PipelineStep(BaseModel):
+    name: str
+    status: str  # pending | running | done | failed | skipped | cancelled
+    started_at: str | None = None
+    finished_at: str | None = None
+    code: str | None = None
+    detail: str | None = None
+    error: str | None = None
+
+
+class PipelineState(BaseModel):
+    """A build -> (backup) -> deploy pipeline run by the server."""
+
+    id: str
+    subscription: str
+    environment: str
+    branch: str
+    build_name: str | None = None
+    database_update_mode: str
+    strategy: str
+    backup_first: bool
+    status: str  # running | succeeded | failed | cancelled
+    progress: int
+    message: str
+    created_at: str
+    finished_at: str | None = None
+    build_code: str | None = None
+    backup_code: str | None = None
+    deployment_code: str | None = None
+    diagnosis: dict | None = None
+    error: str | None = None
+    steps: list[PipelineStep]
+    hint: str = ""
+
+
+class PipelineList(BaseModel):
+    pipelines: list[PipelineState]
+    running: int

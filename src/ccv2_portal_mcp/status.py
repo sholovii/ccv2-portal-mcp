@@ -19,6 +19,7 @@ from . import __version__
 from .app import Registry, active_deployment, is_production, latest_deployed, safe, status_of
 from .client import PortalClient
 from .config import ALL_PERMISSIONS, ConfigError, SubscriptionConfig
+from .pipeline import store as pipeline_store
 
 STARTED_AT = time.time()
 
@@ -244,6 +245,7 @@ class StatusCollector:
             "config_error": None,
             "subscriptions": [],
             "audit": audit_tail(self.registry.settings.audit_log_path, self.registry.settings.ui_audit_lines),
+            "pipelines": pipeline_store.snapshot(10),
         }
         try:
             cfg = self.registry.config

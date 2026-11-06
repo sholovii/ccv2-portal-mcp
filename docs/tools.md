@@ -72,6 +72,20 @@ Notes on behaviour:
 - `set_property` stores the value through the API. Depending on the aspect, the portal may
   still need "apply configuration" or a service restart before it is live.
 
+## Pipelines
+
+| Tool | What it does |
+|---|---|
+| `build_and_deploy` | runs build → (quick backup) → deploy → wait as one server-side pipeline and returns a pipeline id at once. Validates everything first: `build` and `deploy` on the environment (`backup_restore` with `backup_first`), modes and strategies, no running deployment, and `confirm=true` for production, `INITIALIZE` or `RECREATE`. A failed build ends the pipeline with the failure diagnosis attached |
+| `wait_for_pipeline` | blocks until the pipeline finishes or `timeout_sec` elapses (default `WAIT_DEFAULT_SEC`, up to one hour), with progress notifications |
+| `get_pipeline` / `list_pipelines` | state of one pipeline (status, progress, current step, build, backup and deployment codes) or of the recent ones |
+| `cancel_pipeline` | stops a pipeline before its next step; a build or deployment already started in the portal keeps running |
+
+Every write inside a pipeline goes through the ordinary write tools, so the audit log shows
+each step, plus one entry when the pipeline finishes. Pipelines live in the server process:
+under stdio that is the AI client's session, in the container it is the server. A restart
+loses in-flight pipelines and `get_pipeline` says so.
+
 ## Helpers
 
 | Tool | What it does |
